@@ -19,3 +19,13 @@ export interface MiniMaxUsageData {
   apiUnavailable?: boolean;
   apiError?: string;
 }
+
+/** Type guard to check if usage data is MiniMax data */
+export function isMiniMaxUsageData(data: unknown): data is MiniMaxUsageData {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'planName' in data &&
+    (data as { planName: unknown }).planName === 'MiniMax'
+  );
+}
