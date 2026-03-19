@@ -1,6 +1,7 @@
 // tests/minimax-usage.test.ts
 import { describe, it, expect } from 'vitest';
 import type { MiniMaxUsageResponse, MiniMaxUsageData } from '../src/minimax-types.js';
+import { getMiniMaxUsage, isMiniMaxConfigured, parseUtilization } from '../src/minimax-usage.js';
 
 describe('MiniMaxUsageResponse', () => {
   it('has correct shape with all 11 fields', () => {
@@ -121,5 +122,53 @@ describe('MiniMaxUsageData', () => {
     expect(data.resetAt).toBeInstanceOf(Date);
     expect(data.apiUnavailable).toBe(false);
     expect(data.apiError).toBe('Some error');
+  });
+});
+
+describe('getMiniMaxUsage', () => {
+  it('returns null when no API key is set', async () => {
+    const result = await getMiniMaxUsage({ apiKey: () => null });
+    expect(result).toBeNull();
+  });
+
+  it('parses utilization correctly', () => {
+    // (600 - 557) / 600 * 100 = 7.17%
+    const utilization = parseUtilization(600, 557);
+    expect(utilization).toBe(7);
+  });
+
+  it('clamps utilization to 0-100', () => {
+    expect(parseUtilization(100, 150)).toBe(0);  // over 100%
+    expect(parseUtilization(100, -10)).toBe(100); // negative
+  });
+
+  it('returns apiUnavailable on network error', async () => {
+    const deps = {
+      apiKey: () => 'fake-key',
+      fetchApi: async () => ({ data: null, error: 'network' }),
+      homeDir: () => '/tmp',
+      now: () => Date.now(),
+      ttls: { cacheTtlMs: 60000, failureCacheTtlMs: 15000 },
+    };
+    const result = await getMiniMaxUsage(deps);
+    expect(result?.apiUnavailable).toBe(true);
+    expect(result?.apiError).toBe('network');
+  });
+});
+
+describe('isMiniMaxConfigured', () => {
+  it('returns true when ANTHROPIC_MODEL contains minimax', () => {
+    const result = isMiniMaxConfigured('MiniMax-M2.7');
+    expect(result).toBe(true);
+  });
+
+  it('returns true for lowercase minimax', () => {
+    const result = isMiniMaxConfigured('minimax-m2.7');
+    expect(result).toBe(true);
+  });
+
+  it('returns false for anthropic', () => {
+    const result = isMiniMaxConfigured('claude-sonnet-4-20250514');
+    expect(result).toBe(false);
   });
 });
