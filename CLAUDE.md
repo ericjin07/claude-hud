@@ -59,6 +59,12 @@ Claude Code → stdin JSON → parse → render lines → stdout → Claude Code
 - 5-hour and 7-day usage percentages
 - Reset timestamps (cached 60s success, 15s failure)
 
+**From MiniMax Usage API** (`www.minimaxi.com/v1/api/openplatform/coding_plan/remains`):
+- Detected when `ANTHROPIC_MODEL` in `settings.json` contains "minimax"
+- API key from `ANTHROPIC_AUTH_TOKEN` env var
+- Remaining quota percentage and reset time (cached 60s success, 15s failure)
+- Falls back to Anthropic OAuth usage when not using MiniMax
+
 ### File Structure
 
 ```
@@ -69,7 +75,9 @@ src/
 ├── config-reader.ts   # Read MCP/rules configs
 ├── config.ts          # Load/validate user config
 ├── git.ts             # Git status (branch, dirty, ahead/behind)
-├── usage-api.ts       # Fetch usage from Anthropic API
+├── usage-api.ts       # Fetch usage from Anthropic OAuth API
+├── minimax-types.ts   # MiniMax API response types
+├── minimax-usage.ts   # Fetch usage from MiniMax API
 ├── types.ts           # TypeScript interfaces
 └── render/
     ├── index.ts       # Main render coordinator
