@@ -1,4 +1,4 @@
-export interface MiniMaxUsageResponse {
+export interface MiniMaxModelUsage {
   start_time: number;       // Unix ms timestamp
   end_time: number;          // Unix ms timestamp (reset time)
   remains_time: number;      // ms until reset
@@ -10,6 +10,14 @@ export interface MiniMaxUsageResponse {
   weekly_start_time: number;
   weekly_end_time: number;
   weekly_remains_time: number;
+}
+
+export interface MiniMaxUsageResponse {
+  model_remains: MiniMaxModelUsage[];
+  base_resp: {
+    status_code: number;
+    status_msg: string;
+  };
 }
 
 export interface MiniMaxUsageData {

@@ -1,5 +1,6 @@
 import type { HudConfig } from './config.js';
 import type { GitStatus } from './git.js';
+import type { MiniMaxUsageData } from './minimax-types.js';
 export interface StdinData {
     transcript_path?: string;
     cwd?: string;
@@ -55,7 +56,7 @@ export interface UsageData {
     apiError?: string;
 }
 /** Check if usage limit is reached (either window at 100%) */
-export declare function isLimitReached(data: UsageData): boolean;
+export declare function isLimitReached(data: UsageData | MiniMaxUsageData): boolean;
 export interface TranscriptData {
     tools: ToolEntry[];
     agents: AgentEntry[];
@@ -72,7 +73,7 @@ export interface RenderContext {
     hooksCount: number;
     sessionDuration: string;
     gitStatus: GitStatus | null;
-    usageData: UsageData | null;
+    usageData: UsageData | MiniMaxUsageData | null;
     config: HudConfig;
     extraLabel: string | null;
 }

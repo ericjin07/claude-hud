@@ -128,7 +128,12 @@ describe('MiniMaxUsageData', () => {
 
 describe('getMiniMaxUsage', () => {
   it('returns null when no API key is set', async () => {
-    const result = await getMiniMaxUsage({ apiKey: () => null });
+    // Override getAnthropicModelFromSettings to avoid reading real settings.json
+    // which has MiniMax-M2.7 configured, causing cached data to be returned
+    const result = await getMiniMaxUsage({
+      apiKey: () => null,
+      getAnthropicModelFromSettings: () => 'claude-sonnet-4',
+    });
     strictEqual(result, null);
   });
 
@@ -155,6 +160,36 @@ describe('getMiniMaxUsage', () => {
     const result = await getMiniMaxUsage(deps);
     strictEqual(result?.apiUnavailable, true);
     strictEqual(result?.apiError, 'network');
+  });
+
+  it('returns apiUnavailable on MiniMax API error status', async () => {
+    // MiniMax API returns base_resp.status_code !== 0 for errors
+    const deps = {
+      apiKey: () => 'fake-key',
+      fetchApi: async () => ({
+        data: {
+          base_resp: { status_code: 1004, status_msg: 'cookie is missing, log in again' },
+          start_time: 0,
+          end_time: 0,
+          remains_time: 0,
+          current_interval_total_count: 600,
+          current_interval_usage_count: 557,
+          model_name: 'MiniMax-M2.7',
+          current_weekly_total_count: 21000,
+          current_weekly_usage_count: 19640,
+          weekly_start_time: 0,
+          weekly_end_time: 0,
+          weekly_remains_time: 0,
+        },
+      }),
+      homeDir: () => '/tmp',
+      now: () => Date.now(),
+      ttls: { cacheTtlMs: 60000, failureCacheTtlMs: 15000 },
+      getAnthropicModelFromSettings: () => 'MiniMax-M2.7',
+    };
+    const result = await getMiniMaxUsage(deps);
+    strictEqual(result?.apiUnavailable, true);
+    strictEqual(result?.apiError, 'cookie is missing, log in again');
   });
 });
 

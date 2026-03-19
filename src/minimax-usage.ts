@@ -63,6 +63,10 @@ function readCacheState(homeDir: string, now: number, failureTtlMs: number): { d
     const cache: MiniMaxCacheFile = JSON.parse(content);
     const ttl = cache.data.apiUnavailable ? failureTtlMs : CACHE_TTL_MS;
     const isFresh = now - cache.timestamp < ttl;
+    // Re-hydrate resetAt from string back to Date
+    if (cache.data.resetAt && typeof cache.data.resetAt === 'string') {
+      cache.data.resetAt = new Date(cache.data.resetAt);
+    }
     return { data: cache.data, isFresh };
   } catch {
     return null;
@@ -135,6 +139,12 @@ function fetchMiniMaxApi(apiKey: string): Promise<{ data: MiniMaxUsageResponse |
         }
         try {
           const parsed = JSON.parse(data) as MiniMaxUsageResponse;
+          // Check MiniMax API error response (status_code !== 0 means error)
+          if (parsed.base_resp?.status_code !== 0) {
+            const msg = parsed.base_resp?.status_msg ?? 'unknown';
+            resolve({ data: null, error: msg });
+            return;
+          }
           resolve({ data: parsed });
         } catch {
           resolve({ data: null, error: 'parse' });
@@ -217,8 +227,11 @@ export async function getMiniMaxUsage(overrides: Partial<MiniMaxUsageDeps> = {})
     }
 
     const resp = apiResult.data;
-    const utilization = parseUtilization(resp.current_interval_total_count, resp.current_interval_usage_count);
-    const resetAt = resp.end_time ? new Date(resp.end_time) : null;
+    // Find the model entry matching our ANTHROPIC_MODEL
+    const modelEntry = resp.model_remains.find(m => m.model_name === anthropicModel)
+      ?? resp.model_remains[0]; // Fallback to first entry if exact match not found
+    const utilization = parseUtilization(modelEntry.current_interval_total_count, modelEntry.current_interval_usage_count);
+    const resetAt = modelEntry.end_time ? new Date(modelEntry.end_time) : null;
 
     const result: MiniMaxUsageData = {
       planName: 'MiniMax',
