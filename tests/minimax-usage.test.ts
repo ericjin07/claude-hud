@@ -149,6 +149,7 @@ describe('getMiniMaxUsage', () => {
       homeDir: () => '/tmp',
       now: () => Date.now(),
       ttls: { cacheTtlMs: 60000, failureCacheTtlMs: 15000 },
+      getAnthropicModelFromSettings: () => 'MiniMax-M2.7',
     };
     const result = await getMiniMaxUsage(deps);
     expect(result?.apiUnavailable).toBe(true);

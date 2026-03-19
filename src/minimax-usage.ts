@@ -45,8 +45,7 @@ export function getAnthropicModelFromSettings(homeDir: string): string | null {
 }
 
 export function isMiniMaxConfigured(model?: string | null): boolean {
-  // If model is unknown (null/undefined), assume it might be configured and try the API
-  if (model == null) return true;
+  if (!model) return false;
   return model.toLowerCase().includes('minimax');
 }
 
