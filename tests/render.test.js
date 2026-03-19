@@ -1190,3 +1190,16 @@ test('render compact layout keeps activity lines even when elementOrder omits th
   assert.ok(output.includes('Read'), 'compact mode should keep tools visible');
   assert.ok(output.includes('todo-marker'), 'compact mode should keep todos visible');
 });
+
+test('renders MiniMax usage correctly', () => {
+  const ctx = baseContext();
+  ctx.usageData = {
+    planName: 'MiniMax',
+    utilization: 62,
+    resetAt: new Date(Date.now() + 3 * 60 * 60 * 1000), // 3h from now
+    apiUnavailable: false,
+  };
+  const line = renderUsageLine(ctx);
+  assert.ok(line.includes('Usage'), `expected Usage label: ${line}`);
+  assert.ok(line.includes('38%'), `expected 38% used (100-62): ${line}`);
+});

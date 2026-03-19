@@ -20,6 +20,42 @@ export function renderUsageLine(ctx: RenderContext): string | null {
     return null;
   }
 
+  // Check for MiniMax
+  if (isMiniMaxUsageData(ctx.usageData)) {
+    const minimaxData = ctx.usageData;
+    const label = dim('Usage');
+
+    if (minimaxData.apiUnavailable) {
+      const errorHint = formatUsageError(minimaxData.apiError);
+      return `${label} ${warning(`⚠${errorHint}`, colors)}`;
+    }
+
+    if (minimaxData.utilization === 0) {
+      const resetTime = formatResetTime(minimaxData.resetAt);
+      return `${label} ${critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors)}`;
+    }
+
+    const threshold = display?.usageThreshold ?? 0;
+    if (minimaxData.utilization < threshold) {
+      return null;
+    }
+
+    const usageBarEnabled = display?.usageBarEnabled ?? true;
+    const usedPercent = 100 - minimaxData.utilization;
+    const resetTime = formatResetTime(minimaxData.resetAt);
+
+    if (usageBarEnabled) {
+      const bar = quotaBar(usedPercent, 10, colors);
+      const percentDisplay = formatUsagePercent(usedPercent, colors);
+      const timeStr = resetTime ? ` (${resetTime} / quota)` : '';
+      return `${label} ${bar} ${percentDisplay}${timeStr}`;
+    } else {
+      const percentDisplay = formatUsagePercent(usedPercent, colors);
+      const timeStr = resetTime ? ` (${resetTime})` : '';
+      return `${label} ${percentDisplay}${timeStr}`;
+    }
+  }
+
   const label = dim('Usage');
   const usageData = ctx.usageData;
 
@@ -29,10 +65,6 @@ export function renderUsageLine(ctx: RenderContext): string | null {
   }
 
   if (isLimitReached(usageData)) {
-    if (isMiniMaxUsageData(usageData)) {
-      const resetTime = formatResetTime(usageData.resetAt);
-      return `${label} ${critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors)}`;
-    }
     const resetTime = usageData.fiveHour === 100
       ? formatResetTime(usageData.fiveHourResetAt)
       : formatResetTime(usageData.sevenDayResetAt);
@@ -40,25 +72,6 @@ export function renderUsageLine(ctx: RenderContext): string | null {
   }
 
   const threshold = display?.usageThreshold ?? 0;
-
-  // Handle MiniMax usage data
-  if (isMiniMaxUsageData(usageData)) {
-    const effectiveUsage = usageData.utilization;
-    if (effectiveUsage < threshold) {
-      return null;
-    }
-    const usageBarEnabled = display?.usageBarEnabled ?? true;
-    const utilizationDisplay = formatUsagePercent(usageData.utilization, colors);
-    const resetTime = formatResetTime(usageData.resetAt);
-    const part = usageBarEnabled
-      ? (resetTime
-          ? `${quotaBar(usageData.utilization, 10, colors)} ${utilizationDisplay} (${resetTime})`
-          : `${quotaBar(usageData.utilization, 10, colors)} ${utilizationDisplay}`)
-      : (resetTime
-          ? `${utilizationDisplay} (${resetTime})`
-          : `${utilizationDisplay}`);
-    return `${label} ${part}`;
-  }
 
   // Handle Anthropic usage data
   const fiveHour = usageData.fiveHour;
