@@ -37,7 +37,7 @@ export function getAnthropicModelFromSettings(homeDir: string): string | null {
     if (!fs.existsSync(settingsPath)) return null;
     const content = fs.readFileSync(settingsPath, 'utf8');
     const settings = JSON.parse(content);
-    const model = settings?.ANTHROPIC_MODEL;
+    const model = settings?.env?.ANTHROPIC_MODEL ?? settings?.ANTHROPIC_MODEL;
     return typeof model === 'string' ? model : null;
   } catch {
     return null;
