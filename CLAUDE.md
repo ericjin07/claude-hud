@@ -125,6 +125,48 @@ The setup command adds an auto-updating command that finds the latest installed 
 
 Note: `statusLine` is NOT a valid plugin.json field. It must be configured in settings.json after plugin installation. Updates are automatic - no need to re-run setup.
 
+## Development Workflow
+
+### Branches
+
+- `main` - upstream jarrodwatts/claude-hud (original plugin)
+- `minimax-usage` - this fork with MiniMax usage display support
+
+### Local Testing
+
+```bash
+# Build the local worktree
+cd .worktrees/minimax-usage
+npm ci
+npm run build
+
+# Temporarily point settings.json to local worktree
+# Edit ~/.claude/settings.json, change statusLine.command to:
+# "command": "bash -c 'exec \"/usr/bin/node\" \"/home/ericjin/Projects/claude-hud/.worktrees/minimax-usage/dist/index.js\"'"
+
+# Restart Claude Code to test
+
+# After testing, restore settings.json to cache path:
+# "command": "bash -c 'exec \"/usr/bin/node\" \"$HOME/.claude/plugins/cache/claude-hud/claude-hud/dist/index.js\"'"
+```
+
+### Remote Testing (from fork)
+
+```bash
+# Push to fork
+cd .worktrees/minimax-usage
+git add -A && git commit -m "your message" && git push origin minimax-usage
+
+# Clear cache and reinstall from fork
+rm -rf ~/.claude/plugins/cache/claude-hud
+/plugin install claude-hud
+/reload-plugins
+```
+
+### Installation
+
+The plugin is installed from `ericjin07/claude-hud` fork via `/plugin install claude-hud`. It uses the `minimax-usage` branch.
+
 ## Dependencies
 
 - **Runtime**: Node.js 18+ or Bun
