@@ -123,7 +123,9 @@ The plugin manifest is in `.claude-plugin/plugin.json` (metadata only - name, de
 
 The setup command adds an auto-updating command that finds the latest installed version at runtime.
 
-Note: `statusLine` is NOT a valid plugin.json field. It must be configured in settings.json after plugin installation. Updates are automatic - no need to re-run setup.
+Note: `statusLine` is NOT a valid plugin.json field. It must be configured in settings.json after plugin installation.
+
+**Updating**: Run `/plugin update claude-hud` to get the latest version. The statusLine command auto-updates at runtime, but plugin code changes require a plugin update.
 
 ## Development Workflow
 
@@ -152,27 +154,39 @@ npm run build
 
 ### Remote Testing (from fork)
 
-**Important**: `/plugin install` does a shallow clone which may be missing files. Use manual clone instead:
-
 ```bash
-# Push to fork
+# Push changes to minimax-usage branch
 cd .worktrees/minimax-usage
 git add -A && git commit -m "your message" && git push origin minimax-usage
 
-# Clear cache and manually clone with full history
+# Uninstall old version and reinstall (ensures fresh clone)
 rm -rf ~/.claude/plugins/cache/claude-hud
-mkdir -p ~/.claude/plugins/cache
-cd ~/.claude/plugins/cache
-git clone --branch minimax-usage -- https://github.com/ericjin07/claude-hud.git claude-hud
-cd claude-hud && npm ci && npm run build
+/plugin install claude-hud
 
-# Restructure to version subdirectory (plugin expects this structure)
-cd ~/.claude/plugins/cache
-mkdir -p claude-hud-temp && mv claude-hud claude-hud-temp/0.0.10 && mv claude-hud-temp claude-hud
-
-# Reload plugins
-/reload-plugins
+# Or update if already installed (will pull latest from minimax-usage branch)
+/plugin update claude-hud
 ```
+
+### Merging minimax-usage to fork main
+
+If you want `minimax-usage` to be the default branch in your fork:
+
+```bash
+# In your fork's main branch, merge minimax-usage
+# Then push to origin:
+git push origin main
+
+# Users can now update to get your changes:
+/plugin update claude-hud
+```
+
+**Important**: Version number must be bumped in `package.json` for updates to propagate. Claude Code uses the `version` field to determine if an update is available.
+
+### Plugin Update Mechanism
+
+- `/plugin update <name>` - Pulls latest version from marketplace
+- `/plugin install <name>` - Fresh install (uses cache if exists)
+- `/plugin uninstall <name>` - Remove plugin
 
 ### Installation
 
