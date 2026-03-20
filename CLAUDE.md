@@ -149,7 +149,7 @@ npm run build
 # Restart Claude Code to test
 
 # After testing, restore settings.json to cache path:
-# "command": "bash -c 'exec \"/usr/bin/node\" \"$HOME/.claude/plugins/cache/claude-hud/0.0.10/dist/index.js\"'"
+# "command": "bash -c 'exec \"/usr/bin/node\" \"$HOME/.claude/plugins/cache/claude-hud/claude-hud/0.0.10/dist/index.js\"'"
 ```
 
 ### Remote Testing (from fork)
@@ -187,6 +187,27 @@ git push origin main
 - `/plugin update <name>` - Pulls latest version from marketplace
 - `/plugin install <name>` - Fresh install (uses cache if exists)
 - `/plugin uninstall <name>` - Remove plugin
+
+### Troubleshooting
+
+**Cache vs Marketplace structure**:
+- `~/.claude/plugins/cache/claude-hud/claude-hud/0.0.10/` - runtime files (double-nested!)
+- `~/.claude/plugins/marketplaces/claude-hud/` - git clone of the repo
+- `~/.claude/plugins/claude-hud/config.json` - user config
+
+**After `/plugin install` the dist/ files may be outdated**:
+```bash
+# Rebuild and copy to cache
+cd ~/.claude/plugins/marketplaces/claude-hud
+npm ci && npm run build
+cp -r dist/* ~/.claude/plugins/cache/claude-hud/claude-hud/0.0.10/dist/
+```
+
+**Plugin not found after install**:
+- Check `~/.claude/plugins/known_marketplaces.json` has the plugin entry
+- If missing, manually clone: `git clone https://github.com/ericjin07/claude-hud ~/.claude/plugins/marketplaces/claude-hud`
+
+**StatusLine command path**: Claude Code invokes the command every ~300ms. The path must be absolute (no `~`), use `$HOME` or `/home/<user>`.
 
 ### Installation
 
