@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { render } from '../dist/render/index.js';
 import { renderSessionLine } from '../dist/render/session-line.js';
 import { renderProjectLine } from '../dist/render/lines/project.js';
@@ -65,6 +68,30 @@ function captureRenderLines(ctx) {
   return logs;
 }
 
+async function withDeterministicSpeedCache(fn) {
+  const tempConfigDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-render-'));
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const originalNow = Date.now;
+  const cachePath = path.join(tempConfigDir, 'plugins', 'claude-hud', '.speed-cache.json');
+
+  process.env.CLAUDE_CONFIG_DIR = tempConfigDir;
+  await mkdir(path.dirname(cachePath), { recursive: true });
+  await writeFile(cachePath, JSON.stringify({ outputTokens: 1000, timestamp: 1000 }), 'utf8');
+  Date.now = () => 2000;
+
+  try {
+    await fn();
+  } finally {
+    Date.now = originalNow;
+    if (originalConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalConfigDir;
+    }
+    await rm(tempConfigDir, { recursive: true, force: true });
+  }
+}
+
 test('renderSessionLine adds token breakdown when context is high', () => {
   const ctx = baseContext();
   // For 90%: (tokens + 33000) / 200000 = 0.9 → tokens = 147000
@@ -128,6 +155,38 @@ test('getContextColor and getQuotaColor respect custom semantic overrides', () =
   assert.equal(getContextColor(70, colors), '\x1b[94m');
   assert.equal(getQuotaColor(25, colors), '\x1b[35m');
   assert.equal(getQuotaColor(80, colors), '\x1b[33m');
+});
+
+test('getContextColor and getQuotaColor resolve 256-color indices', () => {
+  const colors = {
+    context: 82,
+    usage: 214,
+    warning: 220,
+    usageWarning: 97,
+    critical: 196,
+  };
+
+  assert.equal(getContextColor(10, colors), '\x1b[38;5;82m');
+  assert.equal(getContextColor(70, colors), '\x1b[38;5;220m');
+  assert.equal(getContextColor(90, colors), '\x1b[38;5;196m');
+  assert.equal(getQuotaColor(25, colors), '\x1b[38;5;214m');
+  assert.equal(getQuotaColor(80, colors), '\x1b[38;5;97m');
+  assert.equal(getQuotaColor(95, colors), '\x1b[38;5;196m');
+});
+
+test('getContextColor and getQuotaColor resolve hex color strings', () => {
+  const colors = {
+    context: '#33ff00',
+    usage: '#FFB000',
+    warning: '#ff87d7',
+    usageWarning: '#af87ff',
+    critical: '#ff0000',
+  };
+
+  assert.equal(getContextColor(10, colors), '\x1b[38;2;51;255;0m');
+  assert.equal(getContextColor(70, colors), '\x1b[38;2;255;135;215m');
+  assert.equal(getQuotaColor(25, colors), '\x1b[38;2;255;176;0m');
+  assert.equal(getQuotaColor(80, colors), '\x1b[38;2;175;135;255m');
 });
 
 test('renderSessionLine includes config counts when present', () => {
@@ -230,6 +289,13 @@ test('renderSessionLine hides session name by default', () => {
   assert.ok(!line.includes('Renamed Session'));
 });
 
+test('renderSessionLine includes customLine when configured', () => {
+  const ctx = baseContext();
+  ctx.config.display.customLine = 'Ship it';
+  const line = stripAnsi(renderSessionLine(ctx));
+  assert.ok(line.includes('Ship it'));
+});
+
 test('renderProjectLine includes session name when showSessionName is true', () => {
   const ctx = baseContext();
   ctx.stdin.cwd = '/tmp/my-project';
@@ -239,12 +305,93 @@ test('renderProjectLine includes session name when showSessionName is true', () 
   assert.ok(line?.includes('Renamed Session'));
 });
 
+test('renderProjectLine includes extraLabel when present', () => {
+  const ctx = baseContext();
+  ctx.stdin.cwd = '/tmp/my-project';
+  ctx.extraLabel = 'user [MAX]';
+  const line = renderProjectLine(ctx);
+  assert.ok(line?.includes('user [MAX]'));
+});
+
+test('renderProjectLine omits extraLabel when null', () => {
+  const ctx = baseContext();
+  ctx.stdin.cwd = '/tmp/my-project';
+  ctx.extraLabel = null;
+  const line = renderProjectLine(ctx);
+  assert.ok(!line?.includes('user [MAX]'));
+});
+
 test('renderProjectLine hides session name by default', () => {
   const ctx = baseContext();
   ctx.stdin.cwd = '/tmp/my-project';
   ctx.transcript.sessionName = 'Renamed Session';
   const line = renderProjectLine(ctx);
   assert.ok(!line?.includes('Renamed Session'));
+});
+
+test('renderProjectLine includes customLine when configured', () => {
+  const ctx = baseContext();
+  ctx.stdin.cwd = '/tmp/my-project';
+  ctx.config.display.customLine = 'Stay sharp';
+  const line = stripAnsi(renderProjectLine(ctx) ?? '');
+  assert.ok(line.includes('Stay sharp'));
+});
+
+test('renderProjectLine includes duration when showDuration is true', () => {
+  const ctx = baseContext();
+  ctx.stdin.cwd = '/tmp/my-project';
+  ctx.config.display.showDuration = true;
+  ctx.sessionDuration = '12m 34s';
+  const line = renderProjectLine(ctx);
+  assert.ok(line?.includes('12m 34s'), 'should include session duration');
+});
+
+test('renderProjectLine omits duration when showDuration is false', () => {
+  const ctx = baseContext();
+  ctx.stdin.cwd = '/tmp/my-project';
+  ctx.config.display.showDuration = false;
+  ctx.sessionDuration = '12m 34s';
+  const line = renderProjectLine(ctx);
+  assert.ok(!line?.includes('12m 34s'), 'should not include session duration when disabled');
+});
+
+test('renderProjectLine includes speed when showSpeed is true and speed is available', async () => {
+  await withDeterministicSpeedCache(async () => {
+    const ctx = baseContext();
+    ctx.stdin.cwd = '/tmp/my-project';
+    ctx.stdin.context_window.current_usage.output_tokens = 2000;
+    ctx.config.display.showSpeed = true;
+
+    const line = renderProjectLine(ctx);
+    assert.ok(line?.includes('out: 1000.0 tok/s'), 'should include deterministic speed');
+  });
+});
+
+test('renderProjectLine omits speed when showSpeed is false', () => {
+  const ctx = baseContext();
+  ctx.stdin.cwd = '/tmp/my-project';
+  ctx.config.display.showSpeed = false;
+  ctx.stdin.context_window.current_usage.output_tokens = 5000;
+  const line = renderProjectLine(ctx);
+  assert.ok(!line?.includes('tok/s'), 'should not include speed when disabled');
+});
+
+test('render expanded layout includes speed and duration on the project line', async () => {
+  await withDeterministicSpeedCache(async () => {
+    const ctx = baseContext();
+    ctx.config.lineLayout = 'expanded';
+    ctx.stdin.cwd = '/tmp/my-project';
+    ctx.stdin.context_window.current_usage.output_tokens = 2000;
+    ctx.config.display.showSpeed = true;
+    ctx.sessionDuration = '12m 34s';
+
+    const lines = captureRenderLines(ctx);
+    const projectLine = lines.find(line => line.includes('my-project'));
+
+    assert.ok(projectLine, 'expected an expanded project line');
+    assert.ok(projectLine.includes('out: 1000.0 tok/s'), 'should include deterministic speed');
+    assert.ok(projectLine.includes('⏱️  12m 34s'), 'should include session duration');
+  });
 });
 
 test('renderSessionLine omits project name when showProject is false', () => {
@@ -670,6 +817,7 @@ test('renderSessionLine shows 5hr reset countdown', () => {
 test('renderUsageLine shows reset countdown in days when >= 24 hours', () => {
   const ctx = baseContext();
   const resetTime = new Date(Date.now() + (151 * 3600000) + (59 * 60000)); // 6d 7h 59m from now
+  ctx.config.display.usageBarEnabled = true;
   ctx.usageData = {
     planName: 'Pro',
     fiveHour: 45,
@@ -680,7 +828,7 @@ test('renderUsageLine shows reset countdown in days when >= 24 hours', () => {
   const line = renderUsageLine(ctx);
   assert.ok(line, 'should render usage line');
   const plain = stripAnsi(line);
-  assert.ok(/\(\d+d( \d+h)?\)/.test(plain), `expected day/hour reset format, got: ${plain}`);
+  assert.ok(plain.includes('(resets in 6d 7h)'), `expected bar-mode reset wording, got: ${plain}`);
   assert.ok(!plain.includes('151h'), `should avoid raw hour format for long durations: ${plain}`);
 });
 
@@ -700,7 +848,27 @@ test('renderUsageLine shows 7d reset countdown in text-only mode', () => {
   const line = stripAnsi(renderUsageLine(ctx));
   assert.ok(line.includes('5h: 45%'), `should include 5h text-only usage: ${line}`);
   assert.ok(line.includes('7d: 85%'), `should include 7d text-only usage: ${line}`);
-  assert.ok(line.includes('(1d 4h)'), `should include 7d reset countdown in text-only mode: ${line}`);
+  assert.ok(line.includes('(resets in 1d 4h)'), `should include 7d reset countdown in text-only mode: ${line}`);
+});
+
+test('renderUsageLine shows 7d reset countdown in bar mode when above threshold', () => {
+  const ctx = baseContext();
+  const resetTime = new Date(Date.now() + (28 * 60 * 60 * 1000)); // 1d 4h from now
+  ctx.config.display.usageBarEnabled = true;
+  ctx.config.display.sevenDayThreshold = 80;
+  ctx.usageData = {
+    planName: 'Pro',
+    fiveHour: 45,
+    sevenDay: 85,
+    fiveHourResetAt: null,
+    sevenDayResetAt: resetTime,
+  };
+
+  const line = stripAnsi(renderUsageLine(ctx));
+  assert.ok(line.includes('45%'), `should include 5h percentage in bar mode: ${line}`);
+  assert.ok(line.includes('85%'), `should include 7d percentage: ${line}`);
+  assert.ok(line.includes('(resets in 1d 4h)'), `should include 7d reset countdown in bar mode: ${line}`);
+  assert.ok(line.includes('|'), `should render both usage windows above the threshold: ${line}`);
 });
 
 test('renderSessionLine displays limit reached warning', () => {

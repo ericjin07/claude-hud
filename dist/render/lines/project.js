@@ -1,5 +1,6 @@
 import { getModelName, getProviderLabel } from '../../stdin.js';
-import { cyan, dim, magenta, yellow, red } from '../colors.js';
+import { getOutputSpeed } from '../../speed-tracker.js';
+import { cyan, dim, magenta, yellow, red, claudeOrange } from '../colors.js';
 export function renderProjectLine(ctx) {
     const display = ctx.config?.display;
     const parts = [];
@@ -65,6 +66,22 @@ export function renderProjectLine(ctx) {
     }
     if (display?.showSessionName && ctx.transcript.sessionName) {
         parts.push(dim(ctx.transcript.sessionName));
+    }
+    if (ctx.extraLabel) {
+        parts.push(dim(ctx.extraLabel));
+    }
+    if (display?.showSpeed) {
+        const speed = getOutputSpeed(ctx.stdin);
+        if (speed !== null) {
+            parts.push(dim(`out: ${speed.toFixed(1)} tok/s`));
+        }
+    }
+    if (display?.showDuration !== false && ctx.sessionDuration) {
+        parts.push(dim(`⏱️  ${ctx.sessionDuration}`));
+    }
+    const customLine = display?.customLine;
+    if (customLine) {
+        parts.push(claudeOrange(customLine));
     }
     if (parts.length === 0) {
         return null;

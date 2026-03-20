@@ -2,6 +2,7 @@ import { isLimitReached } from '../../types.js';
 import { isMiniMaxUsageData } from '../../minimax-types.js';
 import { getProviderLabel } from '../../stdin.js';
 import { critical, warning, dim, getQuotaColor, quotaBar, RESET } from '../colors.js';
+import { getAdaptiveBarWidth } from '../../utils/terminal.js';
 export function renderUsageLine(ctx) {
     const display = ctx.config?.display;
     const colors = ctx.config?.colors;
@@ -36,7 +37,7 @@ export function renderUsageLine(ctx) {
         if (usageBarEnabled) {
             const bar = quotaBar(usedPercent, 10, colors);
             const percentDisplay = formatUsagePercent(usedPercent, colors);
-            const timeStr = resetTime ? ` (${resetTime} / 5h) test-rep` : '';
+            const timeStr = resetTime ? ` (${resetTime} / 5h)` : '';
             return `${label} ${bar} ${percentDisplay}${timeStr}`;
         }
         else {
@@ -70,10 +71,10 @@ export function renderUsageLine(ctx) {
     const usageBarEnabled = display?.usageBarEnabled ?? true;
     const fiveHourPart = usageBarEnabled
         ? (fiveHourReset
-            ? `${quotaBar(fiveHour ?? 0, 10, colors)} ${fiveHourDisplay} (${fiveHourReset} / 5h)`
-            : `${quotaBar(fiveHour ?? 0, 10, colors)} ${fiveHourDisplay}`)
+            ? `${quotaBar(fiveHour ?? 0, getAdaptiveBarWidth(), colors)} ${fiveHourDisplay} (resets in ${fiveHourReset})`
+            : `${quotaBar(fiveHour ?? 0, getAdaptiveBarWidth(), colors)} ${fiveHourDisplay}`)
         : (fiveHourReset
-            ? `5h: ${fiveHourDisplay} (${fiveHourReset})`
+            ? `5h: ${fiveHourDisplay} (resets in ${fiveHourReset})`
             : `5h: ${fiveHourDisplay}`);
     const sevenDayThreshold = display?.sevenDayThreshold ?? 80;
     const syncingSuffix = usageData.apiError === 'rate-limited'
@@ -84,10 +85,10 @@ export function renderUsageLine(ctx) {
         const sevenDayReset = formatResetTime(usageData.sevenDayResetAt);
         const sevenDayPart = usageBarEnabled
             ? (sevenDayReset
-                ? `${quotaBar(sevenDay, 10, colors)} ${sevenDayDisplay} (${sevenDayReset} / 7d)`
-                : `${quotaBar(sevenDay, 10, colors)} ${sevenDayDisplay}`)
+                ? `${quotaBar(sevenDay, getAdaptiveBarWidth(), colors)} ${sevenDayDisplay} (resets in ${sevenDayReset})`
+                : `${quotaBar(sevenDay, getAdaptiveBarWidth(), colors)} ${sevenDayDisplay}`)
             : (sevenDayReset
-                ? `7d: ${sevenDayDisplay} (${sevenDayReset})`
+                ? `7d: ${sevenDayDisplay} (resets in ${sevenDayReset})`
                 : `7d: ${sevenDayDisplay}`);
         return `${label} ${fiveHourPart} | ${sevenDayPart}${syncingSuffix}`;
     }

@@ -3,7 +3,8 @@ import { isLimitReached } from '../types.js';
 import { isMiniMaxUsageData } from '../minimax-types.js';
 import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getTotalTokens } from '../stdin.js';
 import { getOutputSpeed } from '../speed-tracker.js';
-import { coloredBar, critical, cyan, dim, magenta, red, warning, yellow, getContextColor, getQuotaColor, quotaBar, RESET } from './colors.js';
+import { coloredBar, critical, cyan, dim, magenta, red, warning, yellow, getContextColor, getQuotaColor, quotaBar, claudeOrange, RESET } from './colors.js';
+import { getAdaptiveBarWidth } from '../utils/terminal.js';
 
 const DEBUG = process.env.DEBUG?.includes('claude-hud') || process.env.DEBUG === '*';
 
@@ -24,7 +25,8 @@ export function renderSessionLine(ctx: RenderContext): string {
   }
 
   const colors = ctx.config?.colors;
-  const bar = coloredBar(percent, 10, colors);
+  const barWidth = getAdaptiveBarWidth();
+  const bar = coloredBar(percent, barWidth, colors);
 
   const parts: string[] = [];
   const display = ctx.config?.display;
@@ -190,8 +192,8 @@ export function renderSessionLine(ctx: RenderContext): string {
           const usageBarEnabled = display?.usageBarEnabled ?? true;
           const fiveHourPart = usageBarEnabled
             ? (fiveHourReset
-                ? `${quotaBar(fiveHour ?? 0, 10, colors)} ${fiveHourDisplay} (${fiveHourReset} / 5h)`
-                : `${quotaBar(fiveHour ?? 0, 10, colors)} ${fiveHourDisplay}`)
+                ? `${quotaBar(fiveHour ?? 0, barWidth, colors)} ${fiveHourDisplay} (${fiveHourReset} / 5h)`
+                : `${quotaBar(fiveHour ?? 0, barWidth, colors)} ${fiveHourDisplay}`)
             : (fiveHourReset
                 ? `5h: ${fiveHourDisplay} (${fiveHourReset})`
                 : `5h: ${fiveHourDisplay}`);
@@ -202,8 +204,8 @@ export function renderSessionLine(ctx: RenderContext): string {
             const sevenDayReset = formatResetTime(usageData.sevenDayResetAt);
             const sevenDayPart = usageBarEnabled
               ? (sevenDayReset
-                  ? `${quotaBar(sevenDay, 10, colors)} ${sevenDayDisplay} (${sevenDayReset} / 7d)`
-                  : `${quotaBar(sevenDay, 10, colors)} ${sevenDayDisplay}`)
+                  ? `${quotaBar(sevenDay, barWidth, colors)} ${sevenDayDisplay} (${sevenDayReset} / 7d)`
+                  : `${quotaBar(sevenDay, barWidth, colors)} ${sevenDayDisplay}`)
               : (sevenDayReset
                   ? `7d: ${sevenDayDisplay} (${sevenDayReset})`
                   : `7d: ${sevenDayDisplay}`);
@@ -230,6 +232,12 @@ export function renderSessionLine(ctx: RenderContext): string {
 
   if (ctx.extraLabel) {
     parts.push(dim(ctx.extraLabel));
+  }
+
+  // Custom line (static user-defined text)
+  const customLine = display?.customLine;
+  if (customLine) {
+    parts.push(claudeOrange(customLine));
   }
 
   let line = parts.join(' | ');
