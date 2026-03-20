@@ -49,9 +49,9 @@ export function isMiniMaxConfigured(model?: string | null): boolean {
   return model.toLowerCase().includes('minimax');
 }
 
-export function parseUtilization(total: number, used: number): number {
+export function parseUtilization(total: number, remaining: number): number {
   if (total <= 0) return 0;
-  const raw = ((total - used) / total) * 100;
+  const raw = ((total - remaining) / total) * 100;
   return Math.max(0, Math.min(100, Math.round(raw)));
 }
 
@@ -230,7 +230,11 @@ export async function getMiniMaxUsage(overrides: Partial<MiniMaxUsageDeps> = {})
     // Find the model entry matching our ANTHROPIC_MODEL
     const modelEntry = resp.model_remains.find(m => m.model_name === anthropicModel)
       ?? resp.model_remains[0]; // Fallback to first entry if exact match not found
-    const utilization = parseUtilization(modelEntry.current_interval_total_count, modelEntry.current_interval_usage_count);
+
+    // MiniMax API: current_interval_usage_count is the REMAINING count (not used!)
+    // utilization = usage_count / total * 100 = percentage of quota remaining
+    const utilization = Math.round((modelEntry.current_interval_usage_count / modelEntry.current_interval_total_count) * 100);
+
     const resetAt = modelEntry.end_time ? new Date(modelEntry.end_time) : null;
 
     const result: MiniMaxUsageData = {
