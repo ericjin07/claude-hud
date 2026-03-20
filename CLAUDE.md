@@ -147,7 +147,7 @@ npm run build
 # Restart Claude Code to test
 
 # After testing, restore settings.json to cache path:
-# "command": "bash -c 'exec \"/usr/bin/node\" \"$HOME/.claude/plugins/cache/claude-hud/claude-hud/0.0.10/dist/index.js\"'"
+# "command": "bash -c 'exec \"/usr/bin/node\" \"$HOME/.claude/plugins/cache/claude-hud/0.0.10/dist/index.js\"'"
 ```
 
 ### Remote Testing (from fork)
