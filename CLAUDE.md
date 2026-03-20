@@ -147,19 +147,30 @@ npm run build
 # Restart Claude Code to test
 
 # After testing, restore settings.json to cache path:
-# "command": "bash -c 'exec \"/usr/bin/node\" \"$HOME/.claude/plugins/cache/claude-hud/claude-hud/dist/index.js\"'"
+# "command": "bash -c 'exec \"/usr/bin/node\" \"$HOME/.claude/plugins/cache/claude-hud/claude-hud/0.0.10/dist/index.js\"'"
 ```
 
 ### Remote Testing (from fork)
+
+**Important**: `/plugin install` does a shallow clone which may be missing files. Use manual clone instead:
 
 ```bash
 # Push to fork
 cd .worktrees/minimax-usage
 git add -A && git commit -m "your message" && git push origin minimax-usage
 
-# Clear cache and reinstall from fork
+# Clear cache and manually clone with full history
 rm -rf ~/.claude/plugins/cache/claude-hud
-/plugin install claude-hud
+mkdir -p ~/.claude/plugins/cache
+cd ~/.claude/plugins/cache
+git clone --branch minimax-usage -- https://github.com/ericjin07/claude-hud.git claude-hud
+cd claude-hud && npm ci && npm run build
+
+# Restructure to version subdirectory (plugin expects this structure)
+cd ~/.claude/plugins/cache
+mkdir -p claude-hud-temp && mv claude-hud claude-hud-temp/0.0.10 && mv claude-hud-temp claude-hud
+
+# Reload plugins
 /reload-plugins
 ```
 
