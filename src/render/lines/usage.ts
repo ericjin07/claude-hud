@@ -47,7 +47,7 @@ export function renderUsageLine(ctx: RenderContext): string | null {
     if (usageBarEnabled) {
       const bar = quotaBar(usedPercent, 10, colors);
       const percentDisplay = formatUsagePercent(usedPercent, colors);
-      const timeStr = resetTime ? ` (${resetTime} / 5h)` : '';
+      const timeStr = resetTime ? ` (${resetTime} / 5h) test` : '';
       return `${label} ${bar} ${percentDisplay}${timeStr}`;
     } else {
       const percentDisplay = formatUsagePercent(usedPercent, colors);
