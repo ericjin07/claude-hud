@@ -1,7 +1,7 @@
 export interface MiniMaxModelUsage {
   start_time: number;       // Unix ms timestamp
   end_time: number;          // Unix ms timestamp (reset time)
-  remains_time: number;      // ms until reset
+  remains_time: number;      // ms until reset (more accurate than end_time - now)
   current_interval_total_count: number;
   current_interval_usage_count: number;
   model_name: string;
@@ -23,7 +23,7 @@ export interface MiniMaxUsageResponse {
 export interface MiniMaxUsageData {
   planName: 'MiniMax';
   utilization: number;      // 0-100 percentage remaining
-  resetAt: Date | null;     // from end_time (Unix ms)
+  resetAt: Date | null;     // calculated from remains_time (more accurate than end_time)
   apiUnavailable?: boolean;
   apiError?: string;
 }

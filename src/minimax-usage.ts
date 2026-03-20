@@ -235,7 +235,8 @@ export async function getMiniMaxUsage(overrides: Partial<MiniMaxUsageDeps> = {})
     // utilization = usage_count / total * 100 = percentage of quota remaining
     const utilization = Math.round((modelEntry.current_interval_usage_count / modelEntry.current_interval_total_count) * 100);
 
-    const resetAt = modelEntry.end_time ? new Date(modelEntry.end_time) : null;
+    // Use remains_time for accurate reset time (end_time can have clock drift)
+    const resetAt = modelEntry.remains_time > 0 ? new Date(Date.now() + modelEntry.remains_time) : null;
 
     const result: MiniMaxUsageData = {
       planName: 'MiniMax',
