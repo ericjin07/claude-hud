@@ -44,7 +44,7 @@ Then run the install command below in that session. This is a [Claude Code platf
 /claude-hud:setup
 ```
 
-Done! The HUD appears immediately — no restart needed.
+Done! Restart Claude Code to load the new statusLine config, then the HUD will appear.
 
 ---
 
@@ -161,9 +161,9 @@ Edit `~/.claude/plugins/claude-hud/config.json` directly for advanced settings s
 
 Supported color names: `red`, `green`, `yellow`, `magenta`, `cyan`, `brightBlue`, `brightMagenta`.
 
-### Usage Limits (Pro/Max/Team)
+### Usage Limits (Pro/Max/Team/MiniMax)
 
-Usage display is **enabled by default** for Claude Pro, Max, and Team subscribers. It shows your rate limit consumption on line 2 alongside the context bar.
+Usage display is **enabled by default** for Claude Pro, Max, Team subscribers, and MiniMax API users. It shows your rate limit consumption on line 2 alongside the context bar.
 
 The 7-day percentage appears when above the `display.sevenDayThreshold` (default 80%):
 
@@ -171,20 +171,32 @@ The 7-day percentage appears when above the `display.sevenDayThreshold` (default
 Context █████░░░░░ 45% │ Usage ██░░░░░░░░ 25% (1h 30m / 5h) | ██████████ 85% (2d / 7d)
 ```
 
+For MiniMax API users, the display shows remaining quota percentage and reset time:
+
+```
+Context █████░░░░░ 45% │ Usage ██████░░░░ 62% (3h 20m / quota)
+```
+
 To disable, set `display.showUsage` to `false`.
 
-**Requirements:**
+**Requirements for Anthropic subscribers:**
 - Claude Pro, Max, or Team subscription (not available for API users)
 - OAuth credentials from Claude Code (created automatically when you log in)
 
+**Requirements for MiniMax API users:**
+- MiniMax API key configured via `ANTHROPIC_AUTH_TOKEN` in `settings.json`
+- `ANTHROPIC_MODEL` in `settings.json` must contain "minimax" (e.g., `MiniMax-M2.7`)
+- The API key is shared with your Anthropic API key setting
+
 **Troubleshooting:** If usage doesn't appear:
-- Ensure you're logged in with a Pro/Max/Team account (not API key)
+- Ensure you're logged in with a Pro/Max/Team account (not API key), or have MiniMax configured
 - Check `display.showUsage` is not set to `false` in config
-- API users see no usage display (they have pay-per-token, not rate limits)
+- API users see no usage display unless using MiniMax (they have pay-per-token, not rate limits)
 - AWS Bedrock models display `Bedrock` and hide usage limits (usage is managed in AWS)
 - Non-default `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_BASE_URL` settings skip usage display, because the Anthropic OAuth usage API may not apply
 - If you are behind a proxy, set `HTTPS_PROXY` (or `HTTP_PROXY`/`ALL_PROXY`) and optional `NO_PROXY`
 - For high-latency environments, increase usage API timeout with `CLAUDE_HUD_USAGE_TIMEOUT_MS` (milliseconds)
+- For MiniMax: ensure `ANTHROPIC_MODEL` contains "minimax" (case-insensitive) in your `settings.json`
 
 ### Example Configuration
 
@@ -250,6 +262,10 @@ To disable, set `display.showUsage` to `false`.
 **Tool/agent/todo lines missing?**
 - These are hidden by default — enable with `showTools`, `showAgents`, `showTodos` in config
 - They also only appear when there's activity to show
+
+**HUD not appearing after setup?**
+- Restart Claude Code so it picks up the new statusLine config
+- On macOS, fully quit Claude Code and run `claude` again in your terminal
 
 ---
 

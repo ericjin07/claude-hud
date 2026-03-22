@@ -4,6 +4,7 @@ import { render } from './render/index.js';
 import { countConfigs } from './config-reader.js';
 import { getGitStatus } from './git.js';
 import { getUsage } from './usage-api.js';
+import { getMiniMaxUsage } from './minimax-usage.js';
 import { loadConfig } from './config.js';
 import { parseExtraCmdArg, runExtraCmd } from './extra-cmd.js';
 import type { RenderContext } from './types.js';
@@ -16,6 +17,7 @@ export type MainDeps = {
   countConfigs: typeof countConfigs;
   getGitStatus: typeof getGitStatus;
   getUsage: typeof getUsage;
+  getMiniMaxUsage: typeof getMiniMaxUsage;
   loadConfig: typeof loadConfig;
   parseExtraCmdArg: typeof parseExtraCmdArg;
   runExtraCmd: typeof runExtraCmd;
@@ -31,6 +33,7 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
     countConfigs,
     getGitStatus,
     getUsage,
+    getMiniMaxUsage,
     loadConfig,
     parseExtraCmdArg,
     runExtraCmd,
@@ -44,7 +47,12 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
     const stdin = await deps.readStdin();
 
     if (!stdin) {
+      // Running without stdin - this happens during setup verification
+      const isMacOS = process.platform === 'darwin';
       deps.log('[claude-hud] Initializing...');
+      if (isMacOS) {
+        deps.log('[claude-hud] Note: On macOS, you may need to restart Claude Code for the HUD to appear.');
+      }
       return;
     }
 
@@ -59,14 +67,24 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
       : null;
 
     // Only fetch usage if enabled in config (replaces env var requirement)
-    const usageData = config.display.showUsage !== false
-      ? await deps.getUsage({
-          ttls: {
-            cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
-            failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
-          },
-        })
-      : null;
+    const miniMaxUsage = await deps.getMiniMaxUsage({
+      ttls: {
+        cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
+        failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
+      },
+    });
+
+    // Fall back to Anthropic if MiniMax not configured
+    const usageData = miniMaxUsage ?? (
+      config.display.showUsage !== false
+        ? await deps.getUsage({
+            ttls: {
+              cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
+              failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
+            },
+          })
+        : null
+    );
 
     const extraCmd = deps.parseExtraCmdArg();
     const extraLabel = extraCmd ? await deps.runExtraCmd(extraCmd) : null;

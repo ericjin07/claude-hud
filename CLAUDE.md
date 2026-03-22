@@ -59,6 +59,12 @@ Claude Code → stdin JSON → parse → render lines → stdout → Claude Code
 - 5-hour and 7-day usage percentages
 - Reset timestamps (cached 60s success, 15s failure)
 
+**From MiniMax Usage API** (`www.minimaxi.com/v1/api/openplatform/coding_plan/remains`):
+- Detected when `ANTHROPIC_MODEL` in `settings.json` contains "minimax"
+- API key from `ANTHROPIC_AUTH_TOKEN` env var
+- Remaining quota percentage and reset time (cached 60s success, 15s failure)
+- Falls back to Anthropic OAuth usage when not using MiniMax
+
 ### File Structure
 
 ```
@@ -69,7 +75,9 @@ src/
 ├── config-reader.ts   # Read MCP/rules configs
 ├── config.ts          # Load/validate user config
 ├── git.ts             # Git status (branch, dirty, ahead/behind)
-├── usage-api.ts       # Fetch usage from Anthropic API
+├── usage-api.ts       # Fetch usage from Anthropic OAuth API
+├── minimax-types.ts   # MiniMax API response types
+├── minimax-usage.ts   # Fetch usage from MiniMax API
 ├── types.ts           # TypeScript interfaces
 └── render/
     ├── index.ts       # Main render coordinator
@@ -115,7 +123,95 @@ The plugin manifest is in `.claude-plugin/plugin.json` (metadata only - name, de
 
 The setup command adds an auto-updating command that finds the latest installed version at runtime.
 
-Note: `statusLine` is NOT a valid plugin.json field. It must be configured in settings.json after plugin installation. Updates are automatic - no need to re-run setup.
+Note: `statusLine` is NOT a valid plugin.json field. It must be configured in settings.json after plugin installation.
+
+**Updating**: Run `/plugin update claude-hud` to get the latest version. The statusLine command auto-updates at runtime, but plugin code changes require a plugin update.
+
+## Development Workflow
+
+### Branches
+
+- `main` - upstream jarrodwatts/claude-hud (original plugin)
+- `minimax-usage` - this fork with MiniMax usage display support
+
+### Local Testing
+
+```bash
+# Build the local worktree
+cd .worktrees/minimax-usage
+npm ci
+npm run build
+
+# Temporarily point settings.json to local worktree
+# Edit ~/.claude/settings.json, change statusLine.command to:
+# "command": "bash -c 'exec \"/usr/bin/node\" \"/home/ericjin/Projects/claude-hud/.worktrees/minimax-usage/dist/index.js\"'"
+
+# Restart Claude Code to test
+
+# After testing, restore settings.json to cache path:
+# "command": "bash -c 'exec \"/usr/bin/node\" \"$HOME/.claude/plugins/cache/claude-hud/claude-hud/0.0.10/dist/index.js\"'"
+```
+
+### Remote Testing (from fork)
+
+```bash
+# Push changes to minimax-usage branch
+cd .worktrees/minimax-usage
+git add -A && git commit -m "your message" && git push origin minimax-usage
+
+# Uninstall old version and reinstall (ensures fresh clone)
+rm -rf ~/.claude/plugins/cache/claude-hud
+/plugin install claude-hud
+
+# Or update if already installed (will pull latest from minimax-usage branch)
+/plugin update claude-hud
+```
+
+### Merging minimax-usage to fork main
+
+If you want `minimax-usage` to be the default branch in your fork:
+
+```bash
+# In your fork's main branch, merge minimax-usage
+# Then push to origin:
+git push origin main
+
+# Users can now update to get your changes:
+/plugin update claude-hud
+```
+
+**Important**: Version number must be bumped in `package.json` for updates to propagate. Claude Code uses the `version` field to determine if an update is available.
+
+### Plugin Update Mechanism
+
+- `/plugin update <name>` - Pulls latest version from marketplace
+- `/plugin install <name>` - Fresh install (uses cache if exists)
+- `/plugin uninstall <name>` - Remove plugin
+
+### Troubleshooting
+
+**Cache vs Marketplace structure**:
+- `~/.claude/plugins/cache/claude-hud/claude-hud/0.0.10/` - runtime files (double-nested!)
+- `~/.claude/plugins/marketplaces/claude-hud/` - git clone of the repo
+- `~/.claude/plugins/claude-hud/config.json` - user config
+
+**After `/plugin install` the dist/ files may be outdated**:
+```bash
+# Rebuild and copy to cache
+cd ~/.claude/plugins/marketplaces/claude-hud
+npm ci && npm run build
+cp -r dist/* ~/.claude/plugins/cache/claude-hud/claude-hud/0.0.10/dist/
+```
+
+**Plugin not found after install**:
+- Check `~/.claude/plugins/known_marketplaces.json` has the plugin entry
+- If missing, manually clone: `git clone https://github.com/ericjin07/claude-hud ~/.claude/plugins/marketplaces/claude-hud`
+
+**StatusLine command path**: Claude Code invokes the command every ~300ms. The path must be absolute (no `~`), use `$HOME` or `/home/<user>`.
+
+### Installation
+
+The plugin is installed from `ericjin07/claude-hud` fork via `/plugin install claude-hud`. It uses the `minimax-usage` branch.
 
 ## Development Workflow
 

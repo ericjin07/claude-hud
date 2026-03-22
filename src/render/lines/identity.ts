@@ -1,6 +1,7 @@
 import type { RenderContext } from '../../types.js';
 import { getContextPercent, getBufferedPercent, getTotalTokens } from '../../stdin.js';
 import { coloredBar, dim, getContextColor, RESET } from '../colors.js';
+import { getAdaptiveBarWidth } from '../../utils/terminal.js';
 
 const DEBUG = process.env.DEBUG?.includes('claude-hud') || process.env.DEBUG === '*';
 
@@ -21,7 +22,7 @@ export function renderIdentityLine(ctx: RenderContext): string {
   const contextValueDisplay = `${getContextColor(percent, colors)}${contextValue}${RESET}`;
 
   let line = display?.showContextBar !== false
-    ? `${dim('Context')} ${coloredBar(percent, 10, colors)} ${contextValueDisplay}`
+    ? `${dim('Context')} ${coloredBar(percent, getAdaptiveBarWidth(), colors)} ${contextValueDisplay}`
     : `${dim('Context')} ${contextValueDisplay}`;
 
   if (display?.showTokenBreakdown !== false && percent >= 85) {

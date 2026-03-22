@@ -42,6 +42,7 @@ export const DEFAULT_CONFIG = {
         usageThreshold: 0,
         sevenDayThreshold: 80,
         environmentThreshold: 0,
+        customLine: '',
     },
     usage: {
         cacheTtlSeconds: 60,
@@ -79,6 +80,16 @@ function validateColorName(value) {
         || value === 'cyan'
         || value === 'brightBlue'
         || value === 'brightMagenta';
+}
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+function validateColorValue(value) {
+    if (validateColorName(value))
+        return true;
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 255)
+        return true;
+    if (typeof value === 'string' && HEX_COLOR_PATTERN.test(value))
+        return true;
+    return false;
 }
 function validateElementOrder(value) {
     if (!Array.isArray(value) || value.length === 0) {
@@ -212,25 +223,28 @@ export function mergeConfig(userConfig) {
         usageThreshold: validateThreshold(migrated.display?.usageThreshold, 100),
         sevenDayThreshold: validateThreshold(migrated.display?.sevenDayThreshold, 100),
         environmentThreshold: validateThreshold(migrated.display?.environmentThreshold, 100),
+        customLine: typeof migrated.display?.customLine === 'string'
+            ? migrated.display.customLine.slice(0, 80)
+            : DEFAULT_CONFIG.display.customLine,
     };
     const usage = {
         cacheTtlSeconds: validatePositiveInt(migrated.usage?.cacheTtlSeconds, DEFAULT_CONFIG.usage.cacheTtlSeconds),
         failureCacheTtlSeconds: validatePositiveInt(migrated.usage?.failureCacheTtlSeconds, DEFAULT_CONFIG.usage.failureCacheTtlSeconds),
     };
     const colors = {
-        context: validateColorName(migrated.colors?.context)
+        context: validateColorValue(migrated.colors?.context)
             ? migrated.colors.context
             : DEFAULT_CONFIG.colors.context,
-        usage: validateColorName(migrated.colors?.usage)
+        usage: validateColorValue(migrated.colors?.usage)
             ? migrated.colors.usage
             : DEFAULT_CONFIG.colors.usage,
-        warning: validateColorName(migrated.colors?.warning)
+        warning: validateColorValue(migrated.colors?.warning)
             ? migrated.colors.warning
             : DEFAULT_CONFIG.colors.warning,
-        usageWarning: validateColorName(migrated.colors?.usageWarning)
+        usageWarning: validateColorValue(migrated.colors?.usageWarning)
             ? migrated.colors.usageWarning
             : DEFAULT_CONFIG.colors.usageWarning,
-        critical: validateColorName(migrated.colors?.critical)
+        critical: validateColorValue(migrated.colors?.critical)
             ? migrated.colors.critical
             : DEFAULT_CONFIG.colors.critical,
     };

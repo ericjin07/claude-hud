@@ -4,6 +4,7 @@ import { render } from './render/index.js';
 import { countConfigs } from './config-reader.js';
 import { getGitStatus } from './git.js';
 import { getUsage } from './usage-api.js';
+import { getMiniMaxUsage } from './minimax-usage.js';
 import { loadConfig } from './config.js';
 import { parseExtraCmdArg, runExtraCmd } from './extra-cmd.js';
 export type MainDeps = {
@@ -12,6 +13,7 @@ export type MainDeps = {
     countConfigs: typeof countConfigs;
     getGitStatus: typeof getGitStatus;
     getUsage: typeof getUsage;
+    getMiniMaxUsage: typeof getMiniMaxUsage;
     loadConfig: typeof loadConfig;
     parseExtraCmdArg: typeof parseExtraCmdArg;
     runExtraCmd: typeof runExtraCmd;

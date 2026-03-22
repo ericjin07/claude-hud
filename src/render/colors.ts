@@ -1,4 +1,4 @@
-import type { HudColorName, HudColorOverrides } from '../config.js';
+import type { HudColorName, HudColorValue, HudColorOverrides } from '../config.js';
 
 export const RESET = '\x1b[0m';
 
@@ -10,6 +10,7 @@ const MAGENTA = '\x1b[35m';
 const CYAN = '\x1b[36m';
 const BRIGHT_BLUE = '\x1b[94m';
 const BRIGHT_MAGENTA = '\x1b[95m';
+const CLAUDE_ORANGE = '\x1b[38;5;208m';
 
 const ANSI_BY_NAME: Record<HudColorName, string> = {
   red: RED,
@@ -21,11 +22,29 @@ const ANSI_BY_NAME: Record<HudColorName, string> = {
   brightMagenta: BRIGHT_MAGENTA,
 };
 
-function resolveAnsi(name: HudColorName | undefined, fallback: string): string {
-  if (!name) {
+/** Convert a hex color string (#rrggbb) to a truecolor ANSI escape sequence. */
+function hexToAnsi(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `\x1b[38;2;${r};${g};${b}m`;
+}
+
+/**
+ * Resolve a color value to an ANSI escape sequence.
+ * Accepts named presets, 256-color indices (0-255), or hex strings (#rrggbb).
+ */
+function resolveAnsi(value: HudColorValue | undefined, fallback: string): string {
+  if (value === undefined || value === null) {
     return fallback;
   }
-  return ANSI_BY_NAME[name] ?? fallback;
+  if (typeof value === 'number') {
+    return `\x1b[38;5;${value}m`;
+  }
+  if (typeof value === 'string' && value.startsWith('#') && value.length === 7) {
+    return hexToAnsi(value);
+  }
+  return ANSI_BY_NAME[value as HudColorName] ?? fallback;
 }
 
 function colorize(text: string, color: string): string {
@@ -54,6 +73,10 @@ export function magenta(text: string): string {
 
 export function dim(text: string): string {
   return colorize(text, DIM);
+}
+
+export function claudeOrange(text: string): string {
+  return colorize(text, CLAUDE_ORANGE);
 }
 
 export function warning(text: string, colors?: Partial<HudColorOverrides>): string {
