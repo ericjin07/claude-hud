@@ -147,6 +147,7 @@ export function getUsageFromStdin(stdin: StdinData): UsageData | null {
   }
 
   return {
+    planName: null,
     fiveHour,
     sevenDay,
     fiveHourResetAt: parseRateLimitResetAt(rateLimits.five_hour?.resets_at),

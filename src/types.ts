@@ -1,5 +1,7 @@
 import type { HudConfig } from './config.js';
 import type { GitStatus } from './git.js';
+import type { MiniMaxUsageData } from './minimax-types.js';
+import { isMiniMaxUsageData } from './minimax-types.js';
 
 export interface StdinData {
   transcript_path?: string;
@@ -57,10 +59,13 @@ export interface TodoItem {
 }
 
 export interface UsageData {
+  planName: string | null;  // 'Max', 'Pro', 'MiniMax', or null for API users
   fiveHour: number | null;  // 0-100 percentage, null if unavailable
   sevenDay: number | null;  // 0-100 percentage, null if unavailable
   fiveHourResetAt: Date | null;
   sevenDayResetAt: Date | null;
+  apiUnavailable?: boolean;
+  apiError?: string;
 }
 
 export interface MemoryInfo {
@@ -70,8 +75,11 @@ export interface MemoryInfo {
   usedPercent: number;
 }
 
-/** Check if usage limit is reached (either window at 100%) */
-export function isLimitReached(data: UsageData): boolean {
+/** Check if usage limit is reached (either window at 100% or MiniMax at 0% remaining) */
+export function isLimitReached(data: UsageData | MiniMaxUsageData): boolean {
+  if (isMiniMaxUsageData(data)) {
+    return data.utilization === 0;
+  }
   return data.fiveHour === 100 || data.sevenDay === 100;
 }
 
@@ -92,7 +100,7 @@ export interface RenderContext {
   hooksCount: number;
   sessionDuration: string;
   gitStatus: GitStatus | null;
-  usageData: UsageData | null;
+  usageData: UsageData | MiniMaxUsageData | null;
   memoryUsage: MemoryInfo | null;
   config: HudConfig;
   extraLabel: string | null;

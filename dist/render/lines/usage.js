@@ -1,6 +1,7 @@
 import { isLimitReached } from '../../types.js';
+import { isMiniMaxUsageData } from '../../minimax-types.js';
 import { getProviderLabel } from '../../stdin.js';
-import { critical, label, getQuotaColor, quotaBar, RESET } from '../colors.js';
+import { critical, warning, dim, getQuotaColor, quotaBar, RESET } from '../colors.js';
 import { getAdaptiveBarWidth } from '../../utils/terminal.js';
 export function renderUsageLine(ctx) {
     const display = ctx.config?.display;
@@ -8,81 +9,106 @@ export function renderUsageLine(ctx) {
     if (display?.showUsage === false) {
         return null;
     }
-    if (!ctx.usageData) {
+    if (!ctx.usageData?.planName) {
         return null;
     }
     if (getProviderLabel(ctx.stdin)) {
         return null;
     }
-    const usageLabel = label('Usage', colors);
-    if (isLimitReached(ctx.usageData)) {
-        const resetTime = ctx.usageData.fiveHour === 100
-            ? formatResetTime(ctx.usageData.fiveHourResetAt)
-            : formatResetTime(ctx.usageData.sevenDayResetAt);
-        return `${usageLabel} ${critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors)}`;
+    // Check for MiniMax
+    if (isMiniMaxUsageData(ctx.usageData)) {
+        const minimaxData = ctx.usageData;
+        const label = dim('Usage');
+        if (minimaxData.apiUnavailable) {
+            const errorHint = formatUsageError(minimaxData.apiError);
+            return `${label} ${warning(`⚠${errorHint}`, colors)}`;
+        }
+        if (minimaxData.utilization === 0) {
+            const resetTime = formatResetTime(minimaxData.resetAt);
+            return `${label} ${critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors)}`;
+        }
+        const threshold = display?.usageThreshold ?? 0;
+        if (minimaxData.utilization < threshold) {
+            return null;
+        }
+        const usageBarEnabled = display?.usageBarEnabled ?? true;
+        const usedPercent = 100 - minimaxData.utilization;
+        const resetTime = formatResetTime(minimaxData.resetAt);
+        if (usageBarEnabled) {
+            const bar = quotaBar(usedPercent, 10, colors);
+            const percentDisplay = formatUsagePercent(usedPercent, colors);
+            const timeStr = resetTime ? ` (${resetTime} / 5h)` : '';
+            return `${label} ${bar} ${percentDisplay}${timeStr}`;
+        }
+        else {
+            const percentDisplay = formatUsagePercent(usedPercent, colors);
+            const timeStr = resetTime ? ` (${resetTime})` : '';
+            return `${label} ${percentDisplay}${timeStr}`;
+        }
+    }
+    const label = dim('Usage');
+    const usageData = ctx.usageData;
+    if (usageData.apiUnavailable) {
+        const errorHint = formatUsageError(usageData.apiError);
+        return `${label} ${warning(`⚠${errorHint}`, colors)}`;
+    }
+    if (isLimitReached(usageData)) {
+        const resetTime = usageData.fiveHour === 100
+            ? formatResetTime(usageData.fiveHourResetAt)
+            : formatResetTime(usageData.sevenDayResetAt);
+        return `${label} ${critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors)}`;
     }
     const threshold = display?.usageThreshold ?? 0;
-    const fiveHour = ctx.usageData.fiveHour;
-    const sevenDay = ctx.usageData.sevenDay;
+    // Handle Anthropic usage data
+    const fiveHour = usageData.fiveHour;
+    const sevenDay = usageData.sevenDay;
     const effectiveUsage = Math.max(fiveHour ?? 0, sevenDay ?? 0);
     if (effectiveUsage < threshold) {
         return null;
     }
+    const fiveHourDisplay = formatUsagePercent(usageData.fiveHour, colors);
+    const fiveHourReset = formatResetTime(usageData.fiveHourResetAt);
     const usageBarEnabled = display?.usageBarEnabled ?? true;
+    const fiveHourPart = usageBarEnabled
+        ? (fiveHourReset
+            ? `${quotaBar(fiveHour ?? 0, getAdaptiveBarWidth(), colors)} ${fiveHourDisplay} (resets in ${fiveHourReset})`
+            : `${quotaBar(fiveHour ?? 0, getAdaptiveBarWidth(), colors)} ${fiveHourDisplay}`)
+        : (fiveHourReset
+            ? `5h: ${fiveHourDisplay} (resets in ${fiveHourReset})`
+            : `5h: ${fiveHourDisplay}`);
     const sevenDayThreshold = display?.sevenDayThreshold ?? 80;
-    const barWidth = getAdaptiveBarWidth();
-    if (fiveHour === null && sevenDay !== null) {
-        const weeklyOnlyPart = formatUsageWindowPart({
-            label: '7d',
-            percent: sevenDay,
-            resetAt: ctx.usageData.sevenDayResetAt,
-            colors,
-            usageBarEnabled,
-            barWidth,
-            forceLabel: true,
-        });
-        return `${usageLabel} ${weeklyOnlyPart}`;
-    }
-    const fiveHourPart = formatUsageWindowPart({
-        label: '5h',
-        percent: fiveHour,
-        resetAt: ctx.usageData.fiveHourResetAt,
-        colors,
-        usageBarEnabled,
-        barWidth,
-    });
+    const syncingSuffix = usageData.apiError === 'rate-limited'
+        ? ` ${dim('(syncing...)')}`
+        : '';
     if (sevenDay !== null && sevenDay >= sevenDayThreshold) {
-        const sevenDayPart = formatUsageWindowPart({
-            label: '7d',
-            percent: sevenDay,
-            resetAt: ctx.usageData.sevenDayResetAt,
-            colors,
-            usageBarEnabled,
-            barWidth,
-        });
-        return `${usageLabel} ${fiveHourPart} | ${sevenDayPart}`;
+        const sevenDayDisplay = formatUsagePercent(sevenDay, colors);
+        const sevenDayReset = formatResetTime(usageData.sevenDayResetAt);
+        const sevenDayPart = usageBarEnabled
+            ? (sevenDayReset
+                ? `${quotaBar(sevenDay, getAdaptiveBarWidth(), colors)} ${sevenDayDisplay} (resets in ${sevenDayReset})`
+                : `${quotaBar(sevenDay, getAdaptiveBarWidth(), colors)} ${sevenDayDisplay}`)
+            : (sevenDayReset
+                ? `7d: ${sevenDayDisplay} (resets in ${sevenDayReset})`
+                : `7d: ${sevenDayDisplay}`);
+        return `${label} ${fiveHourPart} | ${sevenDayPart}${syncingSuffix}`;
     }
-    return `${usageLabel} ${fiveHourPart}`;
+    return `${label} ${fiveHourPart}${syncingSuffix}`;
 }
 function formatUsagePercent(percent, colors) {
     if (percent === null) {
-        return label('--', colors);
+        return dim('--');
     }
     const color = getQuotaColor(percent, colors);
     return `${color}${percent}%${RESET}`;
 }
-function formatUsageWindowPart({ label, percent, resetAt, colors, usageBarEnabled, barWidth, forceLabel = false, }) {
-    const usageDisplay = formatUsagePercent(percent, colors);
-    const reset = formatResetTime(resetAt);
-    if (usageBarEnabled) {
-        const body = reset
-            ? `${quotaBar(percent ?? 0, barWidth, colors)} ${usageDisplay} (resets in ${reset})`
-            : `${quotaBar(percent ?? 0, barWidth, colors)} ${usageDisplay}`;
-        return forceLabel ? `${label}: ${body}` : body;
-    }
-    return reset
-        ? `${label}: ${usageDisplay} (resets in ${reset})`
-        : `${label}: ${usageDisplay}`;
+function formatUsageError(error) {
+    if (!error)
+        return '';
+    if (error === 'rate-limited')
+        return ' (syncing...)';
+    if (error.startsWith('http-'))
+        return ` (${error.slice(5)})`;
+    return ` (${error})`;
 }
 function formatResetTime(resetAt) {
     if (!resetAt)

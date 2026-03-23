@@ -130,19 +130,6 @@ function readLastGoodData(homeDir) {
         return null;
     }
 }
-function readCachedPlanName(homeDir) {
-    try {
-        const cachePath = getCachePath(homeDir);
-        if (!fs.existsSync(cachePath))
-            return null;
-        const content = fs.readFileSync(cachePath, 'utf8');
-        const cache = JSON.parse(content);
-        return cache.data.planName ?? cache.lastGoodData?.planName ?? null;
-    }
-    catch {
-        return null;
-    }
-}
 function readCache(homeDir, now, ttls) {
     const cache = readCacheState(homeDir, now, ttls);
     return cache?.isFresh ? cache.data : null;
@@ -311,20 +298,10 @@ export async function getUsage(overrides = {}) {
         }
         const { accessToken, subscriptionType } = credentials;
         // Determine plan name from subscriptionType
-        let planName = getPlanName(subscriptionType);
+        const planName = getPlanName(subscriptionType);
         if (!planName) {
-            // Only fall back to cache when subscriptionType is genuinely missing or
-            // empty after an OAuth refresh. Explicit values like "api" should remain
-            // API users with no usage display.
-            if (!subscriptionType.trim()) {
-                const cached = readCacheState(homeDir, now, deps.ttls);
-                if (cached?.data?.planName) {
-                    planName = cached.data.planName;
-                }
-            }
-            if (!planName) {
-                return null;
-            }
+            // API user, no usage limits to show
+            return null;
         }
         // Fetch usage from API
         const apiResult = await deps.fetchApi(accessToken);
@@ -688,14 +665,6 @@ function getPlanName(subscriptionType) {
     // Unknown subscription type - show it capitalized
     return subscriptionType.charAt(0).toUpperCase() + subscriptionType.slice(1);
 }
-export function getUsagePlanNameFallback(homeDir = os.homedir()) {
-    const subscriptionType = readFileSubscriptionType(homeDir);
-    if (subscriptionType) {
-        return getPlanName(subscriptionType);
-    }
-    const cachedPlanName = readCachedPlanName(homeDir);
-    return cachedPlanName ?? null;
-}
 /** Parse utilization value, clamping to 0-100 and handling NaN/Infinity */
 function parseUtilization(value) {
     if (value == null)
@@ -821,7 +790,7 @@ function createProxyTunnelAgent(proxyUrl) {
                     const tlsSocket = tls.connect({
                         socket: proxySocket,
                         servername: String(options.servername ?? targetHost),
-                        rejectUnauthorized: getProxyTunnelRejectUnauthorized(options.rejectUnauthorized),
+                        rejectUnauthorized: options.rejectUnauthorized !== false,
                     }, () => {
                         settle(null, tlsSocket);
                     });
@@ -839,12 +808,6 @@ function createProxyTunnelAgent(proxyUrl) {
             return undefined;
         }
     }();
-}
-export function getProxyTunnelRejectUnauthorized(rejectUnauthorized, env = process.env) {
-    if (rejectUnauthorized === false) {
-        return false;
-    }
-    return env.NODE_TLS_REJECT_UNAUTHORIZED !== '0';
 }
 function fetchUsageApi(accessToken) {
     return new Promise((resolve) => {

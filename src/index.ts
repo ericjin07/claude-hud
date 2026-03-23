@@ -7,6 +7,7 @@ import { loadConfig } from './config.js';
 import { parseExtraCmdArg, runExtraCmd } from './extra-cmd.js';
 import { getClaudeCodeVersion } from './version.js';
 import { getMemoryUsage } from './memory.js';
+import { getMiniMaxUsage } from './minimax-usage.js';
 import type { RenderContext } from './types.js';
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
@@ -22,6 +23,7 @@ export type MainDeps = {
   runExtraCmd: typeof runExtraCmd;
   getClaudeCodeVersion: typeof getClaudeCodeVersion;
   getMemoryUsage: typeof getMemoryUsage;
+  getMiniMaxUsage: typeof getMiniMaxUsage;
   render: typeof render;
   now: () => number;
   log: (...args: unknown[]) => void;
@@ -39,6 +41,7 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
     runExtraCmd,
     getClaudeCodeVersion,
     getMemoryUsage,
+    getMiniMaxUsage,
     render,
     now: () => Date.now(),
     log: console.log,
@@ -68,9 +71,19 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
       ? await deps.getGitStatus(stdin.cwd)
       : null;
 
-    // Usage comes only from Claude Code's official stdin rate_limits fields.
+    // Only fetch MiniMax usage if enabled in config (replaces env var requirement)
+    const miniMaxUsage = await deps.getMiniMaxUsage({
+      ttls: {
+        cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
+        failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
+      },
+    });
+
+    // Fall back to stdin rate_limits if MiniMax not configured
     let usageData: RenderContext['usageData'] = null;
-    if (config.display.showUsage !== false) {
+    if (miniMaxUsage) {
+      usageData = miniMaxUsage;
+    } else if (config.display.showUsage !== false) {
       usageData = deps.getUsageFromStdin(stdin);
     }
 

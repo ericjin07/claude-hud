@@ -47,6 +47,10 @@ export const DEFAULT_CONFIG = {
         environmentThreshold: 0,
         customLine: '',
     },
+    usage: {
+        cacheTtlSeconds: 60,
+        failureCacheTtlSeconds: 15,
+    },
     colors: {
         context: 'green',
         usage: 'brightBlue',
@@ -269,7 +273,15 @@ export function mergeConfig(userConfig) {
             ? migrated.colors.custom
             : DEFAULT_CONFIG.colors.custom,
     };
-    return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, colors };
+    const usage = {
+        cacheTtlSeconds: typeof migrated.usage?.cacheTtlSeconds === 'number'
+            ? migrated.usage.cacheTtlSeconds
+            : DEFAULT_CONFIG.usage.cacheTtlSeconds,
+        failureCacheTtlSeconds: typeof migrated.usage?.failureCacheTtlSeconds === 'number'
+            ? migrated.usage.failureCacheTtlSeconds
+            : DEFAULT_CONFIG.usage.failureCacheTtlSeconds,
+    };
+    return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, colors, usage };
 }
 export async function loadConfig() {
     const configPath = getConfigPath();

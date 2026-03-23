@@ -82,6 +82,10 @@ export interface HudConfig {
     environmentThreshold: number;
     customLine: string;
   };
+  usage: {
+    cacheTtlSeconds: number;
+    failureCacheTtlSeconds: number;
+  };
   colors: HudColorOverrides;
 }
 
@@ -118,6 +122,10 @@ export const DEFAULT_CONFIG: HudConfig = {
     sevenDayThreshold: 80,
     environmentThreshold: 0,
     customLine: '',
+  },
+  usage: {
+    cacheTtlSeconds: 60,
+    failureCacheTtlSeconds: 15,
   },
   colors: {
     context: 'green',
@@ -363,7 +371,16 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
       : DEFAULT_CONFIG.colors.custom,
   };
 
-  return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, colors };
+  const usage = {
+    cacheTtlSeconds: typeof migrated.usage?.cacheTtlSeconds === 'number'
+      ? migrated.usage.cacheTtlSeconds
+      : DEFAULT_CONFIG.usage.cacheTtlSeconds,
+    failureCacheTtlSeconds: typeof migrated.usage?.failureCacheTtlSeconds === 'number'
+      ? migrated.usage.failureCacheTtlSeconds
+      : DEFAULT_CONFIG.usage.failureCacheTtlSeconds,
+  };
+
+  return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, colors, usage };
 }
 
 export async function loadConfig(): Promise<HudConfig> {

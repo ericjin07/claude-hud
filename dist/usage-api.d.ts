@@ -1,4 +1,3 @@
-import * as https from 'https';
 import type { UsageData } from './types.js';
 export type { UsageData } from './types.js';
 interface UsageApiResponse {
@@ -55,11 +54,9 @@ export declare function resolveKeychainCredentials(serviceNames: string[], now: 
     } | null;
     shouldBackoff: boolean;
 };
-export declare function getUsagePlanNameFallback(homeDir?: string): string | null;
 export declare function getUsageApiTimeoutMs(env?: NodeJS.ProcessEnv): number;
 export declare function isNoProxy(hostname: string, env?: NodeJS.ProcessEnv): boolean;
 export declare function getProxyUrl(hostname: string, env?: NodeJS.ProcessEnv): URL | null;
-export declare function getProxyTunnelRejectUnauthorized(rejectUnauthorized: https.RequestOptions['rejectUnauthorized'], env?: NodeJS.ProcessEnv): boolean;
 export declare function parseRetryAfterSeconds(raw: string | string[] | undefined, nowMs?: number): number | undefined;
 export declare function clearCache(homeDir?: string): void;
 //# sourceMappingURL=usage-api.d.ts.map

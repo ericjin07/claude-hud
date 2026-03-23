@@ -1,5 +1,6 @@
 import type { HudConfig } from './config.js';
 import type { GitStatus } from './git.js';
+import type { MiniMaxUsageData } from './minimax-types.js';
 export interface StdinData {
     transcript_path?: string;
     cwd?: string;
@@ -51,10 +52,13 @@ export interface TodoItem {
     status: 'pending' | 'in_progress' | 'completed';
 }
 export interface UsageData {
+    planName: string | null;
     fiveHour: number | null;
     sevenDay: number | null;
     fiveHourResetAt: Date | null;
     sevenDayResetAt: Date | null;
+    apiUnavailable?: boolean;
+    apiError?: string;
 }
 export interface MemoryInfo {
     totalBytes: number;
@@ -62,8 +66,8 @@ export interface MemoryInfo {
     freeBytes: number;
     usedPercent: number;
 }
-/** Check if usage limit is reached (either window at 100%) */
-export declare function isLimitReached(data: UsageData): boolean;
+/** Check if usage limit is reached (either window at 100% or MiniMax at 0% remaining) */
+export declare function isLimitReached(data: UsageData | MiniMaxUsageData): boolean;
 export interface TranscriptData {
     tools: ToolEntry[];
     agents: AgentEntry[];
@@ -80,7 +84,7 @@ export interface RenderContext {
     hooksCount: number;
     sessionDuration: string;
     gitStatus: GitStatus | null;
-    usageData: UsageData | null;
+    usageData: UsageData | MiniMaxUsageData | null;
     memoryUsage: MemoryInfo | null;
     config: HudConfig;
     extraLabel: string | null;

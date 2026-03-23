@@ -120,6 +120,7 @@ export function getUsageFromStdin(stdin) {
         return null;
     }
     return {
+        planName: null,
         fiveHour,
         sevenDay,
         fiveHourResetAt: parseRateLimitResetAt(rateLimits.five_hour?.resets_at),
