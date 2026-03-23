@@ -1,4 +1,4 @@
-import type { StdinData } from './types.js';
+import type { StdinData, UsageData } from './types.js';
 import { AUTOCOMPACT_BUFFER_PERCENT } from './constants.js';
 
 export async function readStdin(): Promise<StdinData | null> {
@@ -116,6 +116,43 @@ export function getProviderLabel(stdin: StdinData): string | null {
     return 'Bedrock';
   }
   return null;
+}
+
+function parseRateLimitPercent(value: number | null | undefined): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+
+  return Math.round(Math.min(100, Math.max(0, value)));
+}
+
+function parseRateLimitResetAt(value: number | null | undefined): Date | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return new Date(value * 1000);
+}
+
+export function getUsageFromStdin(stdin: StdinData): UsageData | null {
+  const rateLimits = stdin.rate_limits;
+  if (!rateLimits) {
+    return null;
+  }
+
+  const fiveHour = parseRateLimitPercent(rateLimits.five_hour?.used_percentage);
+  const sevenDay = parseRateLimitPercent(rateLimits.seven_day?.used_percentage);
+  if (fiveHour === null && sevenDay === null) {
+    return null;
+  }
+
+  return {
+    planName: null,
+    fiveHour,
+    sevenDay,
+    fiveHourResetAt: parseRateLimitResetAt(rateLimits.five_hour?.resets_at),
+    sevenDayResetAt: parseRateLimitResetAt(rateLimits.seven_day?.resets_at),
+  };
 }
 
 function normalizeBedrockModelLabel(modelId: string): string | null {

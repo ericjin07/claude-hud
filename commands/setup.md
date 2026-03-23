@@ -26,9 +26,10 @@ echo "Cache: $CACHE_EXISTS | Registry: $REGISTRY_EXISTS | Temp: ${TEMP_FILES:-no
 
 **Windows (PowerShell)**:
 ```powershell
-$cache = Test-Path "$env:USERPROFILE\.claude\plugins\cache\claude-hud"
-$registry = (Get-Content "$env:USERPROFILE\.claude\plugins\installed_plugins.json" -ErrorAction SilentlyContinue) -match "claude-hud"
-$temp = Get-ChildItem "$env:USERPROFILE\.claude\plugins\cache\temp_local_*" -ErrorAction SilentlyContinue
+$claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME ".claude" }
+$cache = Test-Path (Join-Path $claudeDir "plugins\cache\claude-hud")
+$registry = (Get-Content (Join-Path $claudeDir "plugins\installed_plugins.json") -ErrorAction SilentlyContinue) -match "claude-hud"
+$temp = Get-ChildItem (Join-Path $claudeDir "plugins\cache\temp_local_*") -ErrorAction SilentlyContinue
 Write-Host "Cache: $cache | Registry: $registry | Temp: $($temp.Count) files"
 ```
 
@@ -64,14 +65,16 @@ echo '{"version": 2, "plugins": {}}' > "$CLAUDE_DIR/plugins/installed_plugins.js
 
 **Windows (PowerShell)**:
 ```powershell
+$claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME ".claude" }
+
 # Remove orphaned cache
-Remove-Item -Recurse -Force "$env:USERPROFILE\.claude\plugins\cache\claude-hud" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $claudeDir "plugins\cache\claude-hud") -ErrorAction SilentlyContinue
 
 # Remove temp files
-Remove-Item -Recurse -Force "$env:USERPROFILE\.claude\plugins\cache\temp_local_*" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $claudeDir "plugins\cache\temp_local_*") -ErrorAction SilentlyContinue
 
 # Reset registry (removes ALL plugins - warn user first!)
-'{"version": 2, "plugins": {}}' | Set-Content "$env:USERPROFILE\.claude\plugins\installed_plugins.json"
+'{"version": 2, "plugins": {}}' | Set-Content (Join-Path $claudeDir "plugins\installed_plugins.json")
 ```
 
 After cleanup, tell user to **restart Claude Code** and run `/plugin install claude-hud` again.
@@ -100,8 +103,8 @@ This is a [Claude Code platform limitation](https://github.com/anthropics/claude
 |----------|-------|----------------|
 | `darwin` | any | bash (macOS instructions) |
 | `linux` | any | bash (Linux instructions) |
-| `win32` | `bash` (Git Bash, MSYS2) | bash (use macOS/Linux instructions) |
-| `win32` | `powershell`, `pwsh`, or `cmd` | PowerShell (use Windows instructions) |
+| `win32` | `bash` (Git Bash, MSYS2) | bash - use macOS/Linux instructions. Never use PowerShell commands with bash. |
+| `win32` | `powershell`, `pwsh`, or `cmd` | PowerShell (use Windows + PowerShell instructions) |
 
 ---
 
@@ -109,16 +112,25 @@ This is a [Claude Code platform limitation](https://github.com/anthropics/claude
 
 1. Get plugin path (sorted by dotted numeric version, not modification time):
    ```bash
-   ls -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | awk -F/ '{ print $(NF-1) "\t" $0 }' | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1 | cut -f2-
+   ls -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | awk -F/ '{ print $(NF-1) "\t" $(0) }' | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1 | cut -f2-
    ```
-   If empty, the plugin is not installed. Go back to Step 0 to check for ghost installation or EXDEV issues. If Step 0 was clean, tell user to install via `/plugin install claude-hud` first.
+   If empty, the plugin is not installed. Go back to Step 0 to check for ghost installation or EXDEV issues. If Step 0 was clean, ask the user to install via `/plugin install claude-hud` first.
 
 2. Get runtime absolute path (prefer bun for performance, fallback to node):
    ```bash
    command -v bun 2>/dev/null || command -v node 2>/dev/null
    ```
 
-   If empty, stop and tell user to install Node.js or Bun.
+   If empty, stop setup and explain that the current shell cannot find `bun` or `node`.
+   - On **Windows + Git Bash/MSYS2**, explicitly explain that the current Git Bash session could not find `bun` or `node`, even if Claude Code itself is installed.
+   - If `winget` is available, recommend:
+     ```bash
+     winget install OpenJS.NodeJS.LTS
+     ```
+   - Otherwise ask the user to install one of these:
+     - Node.js LTS from https://nodejs.org/
+     - Bun from https://bun.sh/
+   - After installation, ask the user to restart their shell and re-run `/claude-hud:setup`.
 
 3. Verify the runtime exists:
    ```bash
@@ -133,35 +145,54 @@ This is a [Claude Code platform limitation](https://github.com/anthropics/claude
    If result is "bun", use `src/index.ts` (bun has native TypeScript support). Otherwise use `dist/index.js` (pre-compiled).
 
 5. Generate command (quotes around runtime path handle spaces):
+
+   **When runtime is bun** - add `--env-file /dev/null` to prevent Bun from auto-loading project `.env` files:
    ```
-   bash -c 'plugin_dir=$(ls -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | awk -F/ '"'"'{ print $(NF-1) "\t" $0 }'"'"' | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1 | cut -f2-); exec "{RUNTIME_PATH}" "${plugin_dir}{SOURCE}"'
+   bash -c 'plugin_dir=$(ls -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | awk -F/ '"'"'{ print $(NF-1) "\t" $(0) }'"'"' | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1 | cut -f2-); exec "{RUNTIME_PATH}" --env-file /dev/null "${plugin_dir}{SOURCE}"'
    ```
 
-**Windows** (Platform: `win32`):
+   **When runtime is node**:
+   ```
+   bash -c 'plugin_dir=$(ls -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | awk -F/ '"'"'{ print $(NF-1) "\t" $(0) }'"'"' | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1 | cut -f2-); exec "{RUNTIME_PATH}" "${plugin_dir}{SOURCE}"'
+   ```
 
-Choose instructions by `Shell:` value before running any commands:
-- `Shell: bash` -> use the macOS/Linux section above (same command format).
-- `Shell: powershell`, `pwsh`, or `cmd` -> use the Windows PowerShell section below.
-- Any other shell value -> stop and ask the user which shell launched Claude Code.
+**Windows + Git Bash** (Platform: `win32`, Shell: `bash`):
+
+Use the macOS/Linux bash instructions above - same detection commands, same command format. Do not use PowerShell commands when the shell is bash. Claude Code invokes statusLine commands through bash, which will interpret PowerShell variables like `$env` and `$p` before PowerShell ever sees them.
+
+**Windows + PowerShell** (Platform: `win32`, Shell: `powershell`, `pwsh`, or `cmd`):
 
 1. Get plugin path:
    ```powershell
-   (Get-ChildItem "$env:USERPROFILE\.claude\plugins\cache\claude-hud\claude-hud" -Directory | Where-Object { $_.Name -match '^\d+(\.\d+)+$' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).FullName
+   $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME ".claude" }
+   (Get-ChildItem (Join-Path $claudeDir "plugins\cache\claude-hud\claude-hud") -Directory | Where-Object { $_.Name -match '^\d+(\.\d+)+$' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).FullName
    ```
-   If empty or errors, the plugin is not installed. Tell user to install via marketplace first.
+   If empty or errors, the plugin is not installed. Ask the user to install via marketplace first.
 
 2. Get runtime absolute path (prefer bun, fallback to node):
    ```powershell
    if (Get-Command bun -ErrorAction SilentlyContinue) { (Get-Command bun).Source } elseif (Get-Command node -ErrorAction SilentlyContinue) { (Get-Command node).Source } else { Write-Error "Neither bun nor node found" }
    ```
 
-   If neither found, stop and tell user to install Node.js or Bun.
+   If neither found, stop setup and explain that the current PowerShell session cannot find `bun` or `node`.
+   - If `winget` is available, recommend:
+     ```powershell
+     winget install OpenJS.NodeJS.LTS
+     ```
+   - Otherwise ask the user to install either Node.js LTS or Bun, then restart PowerShell and re-run `/claude-hud:setup`.
 
 3. Check if runtime is bun (by filename). If bun, use `src\index.ts`. Otherwise use `dist\index.js`.
 
 4. Generate command (note: quotes around runtime path handle spaces in paths):
+
+   **When runtime is bun** - add `--env-file NUL` to prevent Bun from auto-loading project `.env` files:
    ```
-   powershell -Command "& {$p=(Get-ChildItem $env:USERPROFILE\.claude\plugins\cache\claude-hud\claude-hud -Directory | Where-Object { $_.Name -match '^\d+(\.\d+)+$' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).FullName; & '{RUNTIME_PATH}' (Join-Path $p '{SOURCE}')}"
+   powershell -Command "& {$claudeDir=if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }; $p=(Get-ChildItem (Join-Path $claudeDir 'plugins\cache\claude-hud\claude-hud') -Directory | Where-Object { $_.Name -match '^\d+(\.\d+)+$' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).FullName; & '{RUNTIME_PATH}' '--env-file' 'NUL' (Join-Path $p '{SOURCE}')}"
+   ```
+
+   **When runtime is node**:
+   ```
+   powershell -Command "& {$claudeDir=if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }; $p=(Get-ChildItem (Join-Path $claudeDir 'plugins\cache\claude-hud\claude-hud') -Directory | Where-Object { $_.Name -match '^\d+(\.\d+)+$' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).FullName; & '{RUNTIME_PATH}' (Join-Path $p '{SOURCE}')}"
    ```
 
 **WSL (Windows Subsystem for Linux)**: If running in WSL, use the macOS/Linux instructions. Ensure the plugin is installed in the Linux environment (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/...`), not the Windows side.
@@ -178,7 +209,7 @@ Run the generated command. It should produce output (the HUD lines) within a few
 
 Read the settings file and merge in the statusLine config, preserving all existing settings:
 - **Platform `darwin` or `linux`, or Platform `win32` + Shell `bash`**: `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`
-- **Platform `win32` + Shell `powershell`, `pwsh`, or `cmd`**: `$env:USERPROFILE\.claude\settings.json`
+- **Platform `win32` + Shell `powershell`, `pwsh`, or `cmd`**: `settings.json` inside `$env:CLAUDE_CONFIG_DIR` when set, otherwise `Join-Path $HOME ".claude"`
 
 If the file doesn't exist, create it. If it contains invalid JSON, report the error and do not overwrite.
 If a write fails with `File has been unexpectedly modified`, re-read the file and retry the merge once.
@@ -198,6 +229,10 @@ After successfully writing the config, tell the user:
 > ✅ Config written. **Please restart Claude Code now** — quit and run `claude` again in your terminal.
 > Once restarted, run `/claude-hud:setup` again to complete Step 4 and verify the HUD is working.
 
+**Windows note**: Keep the restart guidance separate from runtime installation guidance.
+- If the user just installed Node.js or Bun, they should restart their shell first so `bun` or `node` is available in `PATH`.
+- After `statusLine` is written successfully, they should fully quit Claude Code and launch a fresh session before judging whether the HUD setup worked.
+
 **Note**: The generated command dynamically finds and runs the latest installed plugin version. Updates are automatic - no need to re-run setup after plugin updates. If the HUD suddenly stops working, re-run `/claude-hud:setup` to verify the plugin is still installed.
 
 ## Step 4: Optional Features
@@ -215,7 +250,7 @@ Use AskUserQuestion:
   - "Session name" — Shows session slug or custom title from /rename
   - "Custom line" — Display a custom phrase in the HUD
 
-**If user selects any options**, write `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/claude-hud/config.json` (create directories if needed):
+**If user selects any options**, write `plugins/claude-hud/config.json` inside the Claude config directory (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}` on bash, `$env:CLAUDE_CONFIG_DIR` or `Join-Path $HOME ".claude"` on PowerShell). Create directories if needed:
 
 | Selection | Config keys |
 |-----------|------------|
@@ -249,7 +284,7 @@ Use AskUserQuestion:
     - If you've already restarted, continue below
 
 2. **Verify config was applied**:
-   - Read settings file (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json` or `$env:USERPROFILE\.claude\settings.json` on Windows)
+   - Read settings file (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json` on bash, or `settings.json` inside `$env:CLAUDE_CONFIG_DIR` when set, otherwise `Join-Path $HOME ".claude"` on PowerShell)
    - Check statusLine.command exists and looks correct
    - If command contains a hardcoded version path (not using the dynamic version-lookup command), it may be a stale config from a previous setup
 

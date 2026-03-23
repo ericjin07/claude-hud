@@ -44,7 +44,20 @@ Then run the install command below in that session. This is a [Claude Code platf
 /claude-hud:setup
 ```
 
+<details>
+<summary><strong>⚠️ Windows users: Click here if setup says no JavaScript runtime was found</strong></summary>
+
+If setup says no JavaScript runtime was found on Windows, install one for your shell first. The simplest fallback is Node.js LTS:
+```powershell
+winget install OpenJS.NodeJS.LTS
+```
+Then restart your shell and run `/claude-hud:setup` again.
+
+</details>
+
 Done! Restart Claude Code to load the new statusLine config, then the HUD will appear.
+
+On Windows, make that a full Claude Code restart after setup writes the new `statusLine` config.
 
 ---
 
@@ -64,10 +77,10 @@ Claude HUD gives you better insights into what's happening in your Claude Code s
 
 ### Default (2 lines)
 ```
-[Opus | Max] │ my-project git:(main*)
+[Opus] │ my-project git:(main*)
 Context █████░░░░░ 45% │ Usage ██░░░░░░░░ 25% (1h 30m / 5h)
 ```
-- **Line 1** — Model, plan name (or `Bedrock`), project path, git branch
+- **Line 1** — Model, provider/auth label when relevant (for example `Bedrock` or `API`), project path, git branch
 - **Line 2** — Context bar (green → yellow → red) and usage rate limits
 
 ### Optional lines (enable via `/claude-hud:configure`)
@@ -132,18 +145,18 @@ Edit `~/.claude/plugins/claude-hud/config.json` directly for advanced settings s
 |--------|------|---------|-------------|
 | `lineLayout` | string | `expanded` | Layout: `expanded` (multi-line) or `compact` (single line) |
 | `pathLevels` | 1-3 | 1 | Directory levels to show in project path |
-| `elementOrder` | string[] | `["project","context","usage","environment","tools","agents","todos"]` | Expanded-mode element order. Omit entries to hide them in expanded mode. |
+| `elementOrder` | string[] | `["project","context","usage","memory","environment","tools","agents","todos"]` | Expanded-mode element order. Omit entries to hide them in expanded mode. |
 | `gitStatus.enabled` | boolean | true | Show git branch in HUD |
 | `gitStatus.showDirty` | boolean | true | Show `*` for uncommitted changes |
 | `gitStatus.showAheadBehind` | boolean | false | Show `↑N ↓N` for ahead/behind remote |
 | `gitStatus.showFileStats` | boolean | false | Show file change counts `!M +A ✘D ?U` |
 | `display.showModel` | boolean | true | Show model name `[Opus]` |
 | `display.showContextBar` | boolean | true | Show visual context bar `████░░░░░░` |
-| `display.contextValue` | `percent` \| `tokens` \| `remaining` | `percent` | Context display format (`45%`, `45k/200k`, or `55%` remaining) |
+| `display.contextValue` | `percent` \| `tokens` \| `remaining` \| `both` | `percent` | Context display format (`45%`, `45k/200k`, `55%` remaining, or `45% (45k/200k)`) |
 | `display.showConfigCounts` | boolean | false | Show CLAUDE.md, rules, MCPs, hooks counts |
 | `display.showDuration` | boolean | false | Show session duration `⏱️ 5m` |
 | `display.showSpeed` | boolean | false | Show output token speed `out: 42.1 tok/s` |
-| `display.showUsage` | boolean | true | Show usage limits (Pro/Max/Team only) |
+| `display.showUsage` | boolean | true | Show Claude subscriber usage limits when available |
 | `display.usageBarEnabled` | boolean | true | Display usage as visual bar instead of text |
 | `display.sevenDayThreshold` | 0-100 | 80 | Show 7-day usage when >= threshold (0 = always) |
 | `display.showTokenBreakdown` | boolean | true | Show token details at high context (85%+) |
@@ -151,19 +164,29 @@ Edit `~/.claude/plugins/claude-hud/config.json` directly for advanced settings s
 | `display.showAgents` | boolean | false | Show agents activity line |
 | `display.showTodos` | boolean | false | Show todos progress line |
 | `display.showSessionName` | boolean | false | Show session slug or custom title from `/rename` |
-| `usage.cacheTtlSeconds` | number | 60 | How long (seconds) to cache a successful usage API response |
-| `usage.failureCacheTtlSeconds` | number | 15 | How long (seconds) to cache a failed usage API response before retrying |
-| `colors.context` | color name | `green` | Base color for the context bar and context percentage |
-| `colors.usage` | color name | `brightBlue` | Base color for usage bars and percentages below warning thresholds |
-| `colors.warning` | color name | `yellow` | Warning color for context thresholds and usage warning text |
-| `colors.usageWarning` | color name | `brightMagenta` | Warning color for usage bars and percentages near their threshold |
-| `colors.critical` | color name | `red` | Critical color for limit-reached states and critical thresholds |
+| `display.showClaudeCodeVersion` | boolean | false | Show the installed Claude Code version, e.g. `CC v2.1.81` |
+| `display.showMemoryUsage` | boolean | false | Show an approximate system RAM usage line in expanded layout |
+| `colors.context` | color value | `green` | Base color for the context bar and context percentage |
+| `colors.usage` | color value | `brightBlue` | Base color for usage bars and percentages below warning thresholds |
+| `colors.warning` | color value | `yellow` | Warning color for context thresholds and usage warning text |
+| `colors.usageWarning` | color value | `brightMagenta` | Warning color for usage bars and percentages near their threshold |
+| `colors.critical` | color value | `red` | Critical color for limit-reached states and critical thresholds |
+| `colors.model` | color value | `cyan` | Color for the model badge such as `[Opus]` |
+| `colors.project` | color value | `yellow` | Color for the project path |
+| `colors.git` | color value | `magenta` | Color for git wrapper text such as `git:(` and `)` |
+| `colors.gitBranch` | color value | `cyan` | Color for the git branch and branch status text |
+| `colors.label` | color value | `dim` | Color for labels and secondary metadata such as `Context`, `Usage`, counts, and progress text |
+| `colors.custom` | color value | `208` | Color for the optional custom line |
 
-Supported color names: `red`, `green`, `yellow`, `magenta`, `cyan`, `brightBlue`, `brightMagenta`.
+Supported color names: `dim`, `red`, `green`, `yellow`, `magenta`, `cyan`, `brightBlue`, `brightMagenta`. You can also use a 256-color number (`0-255`) or hex (`#rrggbb`).
 
-### Usage Limits (Pro/Max/Team/MiniMax)
+`display.showMemoryUsage` is fully opt-in and only renders in `expanded` layout. It reports approximate system RAM usage from the local machine, not precise memory pressure inside Claude Code or a specific process. The number may overstate actual pressure because reclaimable OS cache and buffers can still be counted as used memory.
 
-Usage display is **enabled by default** for Claude Pro, Max, Team subscribers, and MiniMax API users. It shows your rate limit consumption on line 2 alongside the context bar.
+### Usage Limits
+
+Usage display is **enabled by default** when Claude Code provides subscriber `rate_limits` data on stdin. It shows your rate limit consumption on line 2 alongside the context bar.
+
+Free/weekly-only accounts render the weekly window by itself instead of showing a ghost `5h: --` placeholder.
 
 The 7-day percentage appears when above the `display.sevenDayThreshold` (default 80%):
 
@@ -171,32 +194,19 @@ The 7-day percentage appears when above the `display.sevenDayThreshold` (default
 Context █████░░░░░ 45% │ Usage ██░░░░░░░░ 25% (1h 30m / 5h) | ██████████ 85% (2d / 7d)
 ```
 
-For MiniMax API users, the display shows remaining quota percentage and reset time:
-
-```
-Context █████░░░░░ 45% │ Usage ██████░░░░ 62% (3h 20m / quota)
-```
-
 To disable, set `display.showUsage` to `false`.
 
-**Requirements for Anthropic subscribers:**
-- Claude Pro, Max, or Team subscription (not available for API users)
-- OAuth credentials from Claude Code (created automatically when you log in)
-
-**Requirements for MiniMax API users:**
-- MiniMax API key configured via `ANTHROPIC_AUTH_TOKEN` in `settings.json`
-- `ANTHROPIC_MODEL` in `settings.json` must contain "minimax" (e.g., `MiniMax-M2.7`)
-- The API key is shared with your Anthropic API key setting
+**Requirements:**
+- Claude subscription usage data from Claude Code stdin
+- Not available for API-key-only users
 
 **Troubleshooting:** If usage doesn't appear:
-- Ensure you're logged in with a Pro/Max/Team account (not API key), or have MiniMax configured
+- Ensure you're logged in with a Claude subscriber account (not API key)
 - Check `display.showUsage` is not set to `false` in config
-- API users see no usage display unless using MiniMax (they have pay-per-token, not rate limits)
+- API users see no usage display (they have pay-per-token, not rate limits)
 - AWS Bedrock models display `Bedrock` and hide usage limits (usage is managed in AWS)
-- Non-default `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_BASE_URL` settings skip usage display, because the Anthropic OAuth usage API may not apply
-- If you are behind a proxy, set `HTTPS_PROXY` (or `HTTP_PROXY`/`ALL_PROXY`) and optional `NO_PROXY`
-- For high-latency environments, increase usage API timeout with `CLAUDE_HUD_USAGE_TIMEOUT_MS` (milliseconds)
-- For MiniMax: ensure `ANTHROPIC_MODEL` contains "minimax" (case-insensitive) in your `settings.json`
+- Claude Code may leave `rate_limits` empty until after the first model response in a session
+- Older Claude Code versions that do not emit `rate_limits` will not show subscriber usage
 
 ### Example Configuration
 
@@ -204,7 +214,7 @@ To disable, set `display.showUsage` to `false`.
 {
   "lineLayout": "expanded",
   "pathLevels": 2,
-  "elementOrder": ["project", "tools", "context", "usage", "environment", "agents", "todos"],
+  "elementOrder": ["project", "tools", "context", "usage", "memory", "environment", "agents", "todos"],
   "gitStatus": {
     "enabled": true,
     "showDirty": true,
@@ -216,18 +226,21 @@ To disable, set `display.showUsage` to `false`.
     "showAgents": true,
     "showTodos": true,
     "showConfigCounts": true,
-    "showDuration": true
+    "showDuration": true,
+    "showMemoryUsage": true
   },
   "colors": {
     "context": "cyan",
     "usage": "cyan",
     "warning": "yellow",
     "usageWarning": "magenta",
-    "critical": "red"
-  },
-  "usage": {
-    "cacheTtlSeconds": 120,
-    "failureCacheTtlSeconds": 30
+    "critical": "red",
+    "model": "cyan",
+    "project": "yellow",
+    "git": "magenta",
+    "gitBranch": "cyan",
+    "label": "dim",
+    "custom": "#FF6600"
   }
 }
 ```

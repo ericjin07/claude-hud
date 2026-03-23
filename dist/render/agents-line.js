@@ -1,6 +1,7 @@
-import { yellow, green, magenta, dim } from './colors.js';
+import { yellow, green, magenta, label } from './colors.js';
 export function renderAgentsLine(ctx) {
     const { agents } = ctx.transcript;
+    const colors = ctx.config?.colors;
     const runningAgents = agents.filter((a) => a.status === 'running');
     const recentCompleted = agents
         .filter((a) => a.status === 'completed')
@@ -11,17 +12,17 @@ export function renderAgentsLine(ctx) {
     }
     const lines = [];
     for (const agent of toShow) {
-        lines.push(formatAgent(agent));
+        lines.push(formatAgent(agent, colors));
     }
     return lines.join('\n');
 }
-function formatAgent(agent) {
+function formatAgent(agent, colors) {
     const statusIcon = agent.status === 'running' ? yellow('◐') : green('✓');
     const type = magenta(agent.type);
-    const model = agent.model ? dim(`[${agent.model}]`) : '';
-    const desc = agent.description ? dim(`: ${truncateDesc(agent.description)}`) : '';
+    const model = agent.model ? label(`[${agent.model}]`, colors) : '';
+    const desc = agent.description ? label(`: ${truncateDesc(agent.description)}`, colors) : '';
     const elapsed = formatElapsed(agent);
-    return `${statusIcon} ${type}${model ? ` ${model}` : ''}${desc} ${dim(`(${elapsed})`)}`;
+    return `${statusIcon} ${type}${model ? ` ${model}` : ''}${desc} ${label(`(${elapsed})`, colors)}`;
 }
 function truncateDesc(desc, maxLen = 40) {
     if (desc.length <= maxLen)

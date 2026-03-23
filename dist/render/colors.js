@@ -9,6 +9,7 @@ const BRIGHT_BLUE = '\x1b[94m';
 const BRIGHT_MAGENTA = '\x1b[95m';
 const CLAUDE_ORANGE = '\x1b[38;5;208m';
 const ANSI_BY_NAME = {
+    dim: DIM,
     red: RED,
     green: GREEN,
     yellow: YELLOW,
@@ -43,6 +44,9 @@ function resolveAnsi(value, fallback) {
 function colorize(text, color) {
     return `${color}${text}${RESET}`;
 }
+function withOverride(text, value, fallback) {
+    return colorize(text, resolveAnsi(value, fallback));
+}
 export function green(text) {
     return colorize(text, GREEN);
 }
@@ -63,6 +67,24 @@ export function dim(text) {
 }
 export function claudeOrange(text) {
     return colorize(text, CLAUDE_ORANGE);
+}
+export function model(text, colors) {
+    return withOverride(text, colors?.model, CYAN);
+}
+export function project(text, colors) {
+    return withOverride(text, colors?.project, YELLOW);
+}
+export function git(text, colors) {
+    return withOverride(text, colors?.git, MAGENTA);
+}
+export function gitBranch(text, colors) {
+    return withOverride(text, colors?.gitBranch, CYAN);
+}
+export function label(text, colors) {
+    return withOverride(text, colors?.label, DIM);
+}
+export function custom(text, colors) {
+    return withOverride(text, colors?.custom, CLAUDE_ORANGE);
 }
 export function warning(text, colors) {
     return colorize(text, resolveAnsi(colors?.warning, YELLOW));

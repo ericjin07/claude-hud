@@ -22,6 +22,16 @@ export interface StdinData {
     used_percentage?: number | null;
     remaining_percentage?: number | null;
   };
+  rate_limits?: {
+    five_hour?: {
+      used_percentage?: number | null;
+      resets_at?: number | null;
+    } | null;
+    seven_day?: {
+      used_percentage?: number | null;
+      resets_at?: number | null;
+    } | null;
+  } | null;
 }
 
 export interface ToolEntry {
@@ -48,23 +58,24 @@ export interface TodoItem {
   status: 'pending' | 'in_progress' | 'completed';
 }
 
-/** Usage window data from the OAuth API */
-export interface UsageWindow {
-  utilization: number | null;  // 0-100 percentage, null if unavailable
-  resetAt: Date | null;
-}
-
 export interface UsageData {
-  planName: string | null;  // 'Max', 'Pro', or null for API users
+  planName: string | null;  // 'Max', 'Pro', 'MiniMax', or null for API users
   fiveHour: number | null;  // 0-100 percentage, null if unavailable
   sevenDay: number | null;  // 0-100 percentage, null if unavailable
   fiveHourResetAt: Date | null;
   sevenDayResetAt: Date | null;
-  apiUnavailable?: boolean; // true if API call failed (user should check DEBUG logs)
-  apiError?: string; // short error reason (e.g., 401, timeout)
+  apiUnavailable?: boolean;
+  apiError?: string;
 }
 
-/** Check if usage limit is reached (either window at 100%) */
+export interface MemoryInfo {
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+  usedPercent: number;
+}
+
+/** Check if usage limit is reached (either window at 100% or MiniMax at 0% remaining) */
 export function isLimitReached(data: UsageData | MiniMaxUsageData): boolean {
   if (isMiniMaxUsageData(data)) {
     return data.utilization === 0;
@@ -90,6 +101,8 @@ export interface RenderContext {
   sessionDuration: string;
   gitStatus: GitStatus | null;
   usageData: UsageData | MiniMaxUsageData | null;
+  memoryUsage: MemoryInfo | null;
   config: HudConfig;
   extraLabel: string | null;
+  claudeCodeVersion?: string;
 }

@@ -46,7 +46,7 @@ test('loadConfig returns valid config structure', async () => {
   assert.equal(typeof config.display, 'object');
   assert.equal(typeof config.display.showModel, 'boolean');
   assert.equal(typeof config.display.showContextBar, 'boolean');
-  assert.ok(['percent', 'tokens', 'remaining'].includes(config.display.contextValue), 'contextValue should be valid');
+  assert.ok(['percent', 'tokens', 'remaining', 'both'].includes(config.display.contextValue), 'contextValue should be valid');
   assert.equal(typeof config.display.showConfigCounts, 'boolean');
   assert.equal(typeof config.display.showDuration, 'boolean');
   assert.equal(typeof config.display.showSpeed, 'boolean');
@@ -56,8 +56,10 @@ test('loadConfig returns valid config structure', async () => {
   assert.equal(typeof config.display.showAgents, 'boolean');
   assert.equal(typeof config.display.showTodos, 'boolean');
   assert.equal(typeof config.display.showSessionName, 'boolean');
+  assert.equal(typeof config.display.showClaudeCodeVersion, 'boolean');
+  assert.equal(typeof config.display.showMemoryUsage, 'boolean');
   assert.equal(typeof config.colors, 'object');
-  for (const key of ['context', 'usage', 'warning', 'usageWarning', 'critical']) {
+  for (const key of ['context', 'usage', 'warning', 'usageWarning', 'critical', 'model', 'project', 'git', 'gitBranch', 'label', 'custom']) {
     const t = typeof config.colors[key];
     assert.ok(t === 'string' || t === 'number', `colors.${key} should be string or number, got ${t}`);
   }
@@ -85,6 +87,28 @@ test('mergeConfig defaults showSessionName to false', () => {
 test('mergeConfig preserves explicit showSessionName=true', () => {
   const config = mergeConfig({ display: { showSessionName: true } });
   assert.equal(config.display.showSessionName, true);
+});
+
+test('mergeConfig defaults showClaudeCodeVersion to false', () => {
+  const config = mergeConfig({});
+  assert.equal(config.display.showClaudeCodeVersion, false);
+  assert.equal(DEFAULT_CONFIG.display.showClaudeCodeVersion, false);
+});
+
+test('mergeConfig preserves explicit showClaudeCodeVersion=true', () => {
+  const config = mergeConfig({ display: { showClaudeCodeVersion: true } });
+  assert.equal(config.display.showClaudeCodeVersion, true);
+});
+
+test('mergeConfig defaults showMemoryUsage to false', () => {
+  const config = mergeConfig({});
+  assert.equal(config.display.showMemoryUsage, false);
+  assert.equal(DEFAULT_CONFIG.display.showMemoryUsage, false);
+});
+
+test('mergeConfig preserves explicit showMemoryUsage=true', () => {
+  const config = mergeConfig({ display: { showMemoryUsage: true } });
+  assert.equal(config.display.showMemoryUsage, true);
 });
 
 test('mergeConfig preserves customLine and truncates long values', () => {
@@ -189,6 +213,15 @@ test('mergeConfig accepts contextValue=remaining', () => {
   assert.equal(config.display.contextValue, 'remaining');
 });
 
+test('mergeConfig accepts contextValue=both', () => {
+  const config = mergeConfig({
+    display: {
+      contextValue: 'both',
+    },
+  });
+  assert.equal(config.display.contextValue, 'both');
+});
+
 test('mergeConfig falls back to default for invalid contextValue', () => {
   const config = mergeConfig({
     display: {
@@ -205,19 +238,19 @@ test('mergeConfig defaults elementOrder to the full expanded layout', () => {
 
 test('mergeConfig preserves valid custom elementOrder including activity elements', () => {
   const config = mergeConfig({
-    elementOrder: ['tools', 'project', 'usage', 'context', 'agents', 'todos', 'environment'],
+    elementOrder: ['tools', 'project', 'usage', 'memory', 'context', 'agents', 'todos', 'environment'],
   });
   assert.deepEqual(
     config.elementOrder,
-    ['tools', 'project', 'usage', 'context', 'agents', 'todos', 'environment']
+    ['tools', 'project', 'usage', 'memory', 'context', 'agents', 'todos', 'environment']
   );
 });
 
 test('mergeConfig filters unknown entries and de-duplicates elementOrder', () => {
   const config = mergeConfig({
-    elementOrder: ['project', 'agents', 'project', 'banana', 'usage', 'agents', 'context'],
+    elementOrder: ['project', 'agents', 'project', 'banana', 'usage', 'memory', 'agents', 'context'],
   });
-  assert.deepEqual(config.elementOrder, ['project', 'agents', 'usage', 'context']);
+  assert.deepEqual(config.elementOrder, ['project', 'agents', 'usage', 'memory', 'context']);
 });
 
 test('mergeConfig treats elementOrder as an explicit expanded-mode filter', () => {
@@ -233,12 +266,6 @@ test('mergeConfig falls back to default when elementOrder is empty or invalid', 
   assert.deepEqual(mergeConfig({ elementOrder: 'project' }).elementOrder, DEFAULT_ELEMENT_ORDER);
 });
 
-test('mergeConfig defaults usage to expected values', () => {
-  const config = mergeConfig({});
-  assert.equal(config.usage.cacheTtlSeconds, 60);
-  assert.equal(config.usage.failureCacheTtlSeconds, 15);
-});
-
 test('mergeConfig defaults colors to expected semantic palette', () => {
   const config = mergeConfig({});
   assert.equal(config.colors.context, 'green');
@@ -246,6 +273,12 @@ test('mergeConfig defaults colors to expected semantic palette', () => {
   assert.equal(config.colors.warning, 'yellow');
   assert.equal(config.colors.usageWarning, 'brightMagenta');
   assert.equal(config.colors.critical, 'red');
+  assert.equal(config.colors.model, 'cyan');
+  assert.equal(config.colors.project, 'yellow');
+  assert.equal(config.colors.git, 'magenta');
+  assert.equal(config.colors.gitBranch, 'cyan');
+  assert.equal(config.colors.label, 'dim');
+  assert.equal(config.colors.custom, 208);
 });
 
 test('mergeConfig accepts valid color overrides and filters invalid values', () => {
@@ -256,6 +289,12 @@ test('mergeConfig accepts valid color overrides and filters invalid values', () 
       warning: 'brightBlue',
       usageWarning: 'yellow',
       critical: 'not-a-color',
+      model: 214,
+      project: '#33ff00',
+      git: 'cyan',
+      gitBranch: 'not-a-color',
+      label: 'dim',
+      custom: '#ff6600',
     },
   });
 
@@ -264,22 +303,12 @@ test('mergeConfig accepts valid color overrides and filters invalid values', () 
   assert.equal(config.colors.warning, 'brightBlue');
   assert.equal(config.colors.usageWarning, 'yellow');
   assert.equal(config.colors.critical, DEFAULT_CONFIG.colors.critical);
-});
-
-test('mergeConfig accepts custom usage TTL values', () => {
-  const config = mergeConfig({
-    usage: { cacheTtlSeconds: 120, failureCacheTtlSeconds: 30 },
-  });
-  assert.equal(config.usage.cacheTtlSeconds, 120);
-  assert.equal(config.usage.failureCacheTtlSeconds, 30);
-});
-
-test('mergeConfig falls back to defaults for invalid usage values', () => {
-  const config = mergeConfig({
-    usage: { cacheTtlSeconds: -1, failureCacheTtlSeconds: 0 },
-  });
-  assert.equal(config.usage.cacheTtlSeconds, DEFAULT_CONFIG.usage.cacheTtlSeconds);
-  assert.equal(config.usage.failureCacheTtlSeconds, DEFAULT_CONFIG.usage.failureCacheTtlSeconds);
+  assert.equal(config.colors.model, 214);
+  assert.equal(config.colors.project, '#33ff00');
+  assert.equal(config.colors.git, 'cyan');
+  assert.equal(config.colors.gitBranch, DEFAULT_CONFIG.colors.gitBranch);
+  assert.equal(config.colors.label, 'dim');
+  assert.equal(config.colors.custom, '#ff6600');
 });
 
 // --- Custom color value tests (256-color and hex) ---
@@ -292,6 +321,12 @@ test('mergeConfig accepts 256-color index values', () => {
       warning: 220,
       usageWarning: 97,
       critical: 196,
+      model: 214,
+      project: 82,
+      git: 220,
+      gitBranch: 45,
+      label: 250,
+      custom: 208,
     },
   });
   assert.equal(config.colors.context, 82);
@@ -299,6 +334,12 @@ test('mergeConfig accepts 256-color index values', () => {
   assert.equal(config.colors.warning, 220);
   assert.equal(config.colors.usageWarning, 97);
   assert.equal(config.colors.critical, 196);
+  assert.equal(config.colors.model, 214);
+  assert.equal(config.colors.project, 82);
+  assert.equal(config.colors.git, 220);
+  assert.equal(config.colors.gitBranch, 45);
+  assert.equal(config.colors.label, 250);
+  assert.equal(config.colors.custom, 208);
 });
 
 test('mergeConfig accepts hex color strings', () => {
@@ -307,11 +348,15 @@ test('mergeConfig accepts hex color strings', () => {
       context: '#33ff00',
       usage: '#FFB000',
       warning: '#ff87d7',
+      label: '#abcdef',
+      custom: '#ff6600',
     },
   });
   assert.equal(config.colors.context, '#33ff00');
   assert.equal(config.colors.usage, '#FFB000');
   assert.equal(config.colors.warning, '#ff87d7');
+  assert.equal(config.colors.label, '#abcdef');
+  assert.equal(config.colors.custom, '#ff6600');
 });
 
 test('mergeConfig accepts mixed named, 256-color, and hex values', () => {
@@ -322,6 +367,12 @@ test('mergeConfig accepts mixed named, 256-color, and hex values', () => {
       warning: 'yellow',
       usageWarning: '#af87ff',
       critical: 'red',
+      model: 214,
+      project: '#33ff00',
+      git: 'magenta',
+      gitBranch: '#abcdef',
+      label: 'dim',
+      custom: 208,
     },
   });
   assert.equal(config.colors.context, '#33ff00');
@@ -329,6 +380,12 @@ test('mergeConfig accepts mixed named, 256-color, and hex values', () => {
   assert.equal(config.colors.warning, 'yellow');
   assert.equal(config.colors.usageWarning, '#af87ff');
   assert.equal(config.colors.critical, 'red');
+  assert.equal(config.colors.model, 214);
+  assert.equal(config.colors.project, '#33ff00');
+  assert.equal(config.colors.git, 'magenta');
+  assert.equal(config.colors.gitBranch, '#abcdef');
+  assert.equal(config.colors.label, 'dim');
+  assert.equal(config.colors.custom, 208);
 });
 
 test('mergeConfig rejects invalid 256-color indices', () => {

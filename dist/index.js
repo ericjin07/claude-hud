@@ -1,25 +1,28 @@
-import { readStdin } from './stdin.js';
+import { readStdin, getUsageFromStdin } from './stdin.js';
 import { parseTranscript } from './transcript.js';
 import { render } from './render/index.js';
 import { countConfigs } from './config-reader.js';
 import { getGitStatus } from './git.js';
-import { getUsage } from './usage-api.js';
-import { getMiniMaxUsage } from './minimax-usage.js';
 import { loadConfig } from './config.js';
 import { parseExtraCmdArg, runExtraCmd } from './extra-cmd.js';
+import { getClaudeCodeVersion } from './version.js';
+import { getMemoryUsage } from './memory.js';
+import { getMiniMaxUsage } from './minimax-usage.js';
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
 export async function main(overrides = {}) {
     const deps = {
         readStdin,
+        getUsageFromStdin,
         parseTranscript,
         countConfigs,
         getGitStatus,
-        getUsage,
-        getMiniMaxUsage,
         loadConfig,
         parseExtraCmdArg,
         runExtraCmd,
+        getClaudeCodeVersion,
+        getMemoryUsage,
+        getMiniMaxUsage,
         render,
         now: () => Date.now(),
         log: console.log,
@@ -43,25 +46,30 @@ export async function main(overrides = {}) {
         const gitStatus = config.gitStatus.enabled
             ? await deps.getGitStatus(stdin.cwd)
             : null;
-        // Only fetch usage if enabled in config (replaces env var requirement)
+        // Only fetch MiniMax usage if enabled in config (replaces env var requirement)
         const miniMaxUsage = await deps.getMiniMaxUsage({
             ttls: {
                 cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
                 failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
             },
         });
-        // Fall back to Anthropic if MiniMax not configured
-        const usageData = miniMaxUsage ?? (config.display.showUsage !== false
-            ? await deps.getUsage({
-                ttls: {
-                    cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
-                    failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
-                },
-            })
-            : null);
+        // Fall back to stdin rate_limits if MiniMax not configured
+        let usageData = null;
+        if (miniMaxUsage) {
+            usageData = miniMaxUsage;
+        }
+        else if (config.display.showUsage !== false) {
+            usageData = deps.getUsageFromStdin(stdin);
+        }
         const extraCmd = deps.parseExtraCmdArg();
         const extraLabel = extraCmd ? await deps.runExtraCmd(extraCmd) : null;
         const sessionDuration = formatSessionDuration(transcript.sessionStart, deps.now);
+        const claudeCodeVersion = config.display.showClaudeCodeVersion
+            ? await deps.getClaudeCodeVersion()
+            : undefined;
+        const memoryUsage = config.display.showMemoryUsage && config.lineLayout === 'expanded'
+            ? await deps.getMemoryUsage()
+            : null;
         const ctx = {
             stdin,
             transcript,
@@ -72,8 +80,10 @@ export async function main(overrides = {}) {
             sessionDuration,
             gitStatus,
             usageData,
+            memoryUsage,
             config,
             extraLabel,
+            claudeCodeVersion,
         };
         deps.render(ctx);
     }

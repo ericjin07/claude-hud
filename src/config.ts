@@ -6,9 +6,10 @@ import { getHudPluginDir } from './claude-config-dir.js';
 export type LineLayoutType = 'compact' | 'expanded';
 
 export type AutocompactBufferMode = 'enabled' | 'disabled';
-export type ContextValueMode = 'percent' | 'tokens' | 'remaining';
-export type HudElement = 'project' | 'context' | 'usage' | 'environment' | 'tools' | 'agents' | 'todos';
+export type ContextValueMode = 'percent' | 'tokens' | 'remaining' | 'both';
+export type HudElement = 'project' | 'context' | 'usage' | 'memory' | 'environment' | 'tools' | 'agents' | 'todos';
 export type HudColorName =
+  | 'dim'
   | 'red'
   | 'green'
   | 'yellow'
@@ -26,12 +27,19 @@ export interface HudColorOverrides {
   warning: HudColorValue;
   usageWarning: HudColorValue;
   critical: HudColorValue;
+  model: HudColorValue;
+  project: HudColorValue;
+  git: HudColorValue;
+  gitBranch: HudColorValue;
+  label: HudColorValue;
+  custom: HudColorValue;
 }
 
 export const DEFAULT_ELEMENT_ORDER: HudElement[] = [
   'project',
   'context',
   'usage',
+  'memory',
   'environment',
   'tools',
   'agents',
@@ -66,6 +74,8 @@ export interface HudConfig {
     showAgents: boolean;
     showTodos: boolean;
     showSessionName: boolean;
+    showClaudeCodeVersion: boolean;
+    showMemoryUsage: boolean;
     autocompactBuffer: AutocompactBufferMode;
     usageThreshold: number;
     sevenDayThreshold: number;
@@ -105,6 +115,8 @@ export const DEFAULT_CONFIG: HudConfig = {
     showAgents: false,
     showTodos: false,
     showSessionName: false,
+    showClaudeCodeVersion: false,
+    showMemoryUsage: false,
     autocompactBuffer: 'enabled',
     usageThreshold: 0,
     sevenDayThreshold: 80,
@@ -121,6 +133,12 @@ export const DEFAULT_CONFIG: HudConfig = {
     warning: 'yellow',
     usageWarning: 'brightMagenta',
     critical: 'red',
+    model: 'cyan',
+    project: 'yellow',
+    git: 'magenta',
+    gitBranch: 'cyan',
+    label: 'dim',
+    custom: 208,
   },
 };
 
@@ -142,11 +160,12 @@ function validateAutocompactBuffer(value: unknown): value is AutocompactBufferMo
 }
 
 function validateContextValue(value: unknown): value is ContextValueMode {
-  return value === 'percent' || value === 'tokens' || value === 'remaining';
+  return value === 'percent' || value === 'tokens' || value === 'remaining' || value === 'both';
 }
 
 function validateColorName(value: unknown): value is HudColorName {
-  return value === 'red'
+  return value === 'dim'
+    || value === 'red'
     || value === 'green'
     || value === 'yellow'
     || value === 'magenta'
@@ -224,11 +243,6 @@ function validateThreshold(value: unknown, max = 100): number {
   return Math.max(0, Math.min(max, value));
 }
 
-function validatePositiveInt(value: unknown, defaultValue: number): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) return defaultValue;
-  return value;
-}
-
 export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
   const migrated = migrateConfig(userConfig);
 
@@ -304,6 +318,12 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
     showSessionName: typeof migrated.display?.showSessionName === 'boolean'
       ? migrated.display.showSessionName
       : DEFAULT_CONFIG.display.showSessionName,
+    showClaudeCodeVersion: typeof migrated.display?.showClaudeCodeVersion === 'boolean'
+      ? migrated.display.showClaudeCodeVersion
+      : DEFAULT_CONFIG.display.showClaudeCodeVersion,
+    showMemoryUsage: typeof migrated.display?.showMemoryUsage === 'boolean'
+      ? migrated.display.showMemoryUsage
+      : DEFAULT_CONFIG.display.showMemoryUsage,
     autocompactBuffer: validateAutocompactBuffer(migrated.display?.autocompactBuffer)
       ? migrated.display.autocompactBuffer
       : DEFAULT_CONFIG.display.autocompactBuffer,
@@ -313,17 +333,6 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
     customLine: typeof migrated.display?.customLine === 'string'
       ? migrated.display.customLine.slice(0, 80)
       : DEFAULT_CONFIG.display.customLine,
-  };
-
-  const usage = {
-    cacheTtlSeconds: validatePositiveInt(
-      migrated.usage?.cacheTtlSeconds,
-      DEFAULT_CONFIG.usage.cacheTtlSeconds
-    ),
-    failureCacheTtlSeconds: validatePositiveInt(
-      migrated.usage?.failureCacheTtlSeconds,
-      DEFAULT_CONFIG.usage.failureCacheTtlSeconds
-    ),
   };
 
   const colors = {
@@ -342,9 +351,36 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
     critical: validateColorValue(migrated.colors?.critical)
       ? migrated.colors.critical
       : DEFAULT_CONFIG.colors.critical,
+    model: validateColorValue(migrated.colors?.model)
+      ? migrated.colors.model
+      : DEFAULT_CONFIG.colors.model,
+    project: validateColorValue(migrated.colors?.project)
+      ? migrated.colors.project
+      : DEFAULT_CONFIG.colors.project,
+    git: validateColorValue(migrated.colors?.git)
+      ? migrated.colors.git
+      : DEFAULT_CONFIG.colors.git,
+    gitBranch: validateColorValue(migrated.colors?.gitBranch)
+      ? migrated.colors.gitBranch
+      : DEFAULT_CONFIG.colors.gitBranch,
+    label: validateColorValue(migrated.colors?.label)
+      ? migrated.colors.label
+      : DEFAULT_CONFIG.colors.label,
+    custom: validateColorValue(migrated.colors?.custom)
+      ? migrated.colors.custom
+      : DEFAULT_CONFIG.colors.custom,
   };
 
-  return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, usage, colors };
+  const usage = {
+    cacheTtlSeconds: typeof migrated.usage?.cacheTtlSeconds === 'number'
+      ? migrated.usage.cacheTtlSeconds
+      : DEFAULT_CONFIG.usage.cacheTtlSeconds,
+    failureCacheTtlSeconds: typeof migrated.usage?.failureCacheTtlSeconds === 'number'
+      ? migrated.usage.failureCacheTtlSeconds
+      : DEFAULT_CONFIG.usage.failureCacheTtlSeconds,
+  };
+
+  return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, colors, usage };
 }
 
 export async function loadConfig(): Promise<HudConfig> {

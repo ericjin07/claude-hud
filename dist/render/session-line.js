@@ -254,6 +254,14 @@ function formatContextValue(ctx, percent, mode) {
     if (mode === 'remaining') {
         return `${Math.max(0, 100 - percent)}%`;
     }
+    if (mode === 'both') {
+        const totalTokens = getTotalTokens(ctx.stdin);
+        const size = ctx.stdin.context_window?.context_window_size ?? 0;
+        const tokensPart = size > 0
+            ? `${formatTokens(totalTokens)}/${formatTokens(size)}`
+            : formatTokens(totalTokens);
+        return `${percent}% ${tokensPart}`;
+    }
     return `${percent}%`;
 }
 function formatUsagePercent(percent, colors) {

@@ -1,5 +1,94 @@
 import * as fs from 'fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as readline from 'readline';
+import { createHash } from 'node:crypto';
+import { getHudPluginDir } from './claude-config-dir.js';
+let createReadStreamImpl = fs.createReadStream;
+function getTranscriptCachePath(transcriptPath, homeDir) {
+    const hash = createHash('sha256').update(path.resolve(transcriptPath)).digest('hex');
+    return path.join(getHudPluginDir(homeDir), 'transcript-cache', `${hash}.json`);
+}
+function readTranscriptFileState(transcriptPath) {
+    try {
+        const stat = fs.statSync(transcriptPath);
+        if (!stat.isFile()) {
+            return null;
+        }
+        return {
+            mtimeMs: stat.mtimeMs,
+            size: stat.size,
+        };
+    }
+    catch {
+        return null;
+    }
+}
+function serializeTranscriptData(data) {
+    return {
+        tools: data.tools.map((tool) => ({
+            ...tool,
+            startTime: tool.startTime.toISOString(),
+            endTime: tool.endTime?.toISOString(),
+        })),
+        agents: data.agents.map((agent) => ({
+            ...agent,
+            startTime: agent.startTime.toISOString(),
+            endTime: agent.endTime?.toISOString(),
+        })),
+        todos: data.todos.map((todo) => ({ ...todo })),
+        sessionStart: data.sessionStart?.toISOString(),
+        sessionName: data.sessionName,
+    };
+}
+function deserializeTranscriptData(data) {
+    return {
+        tools: data.tools.map((tool) => ({
+            ...tool,
+            startTime: new Date(tool.startTime),
+            endTime: tool.endTime ? new Date(tool.endTime) : undefined,
+        })),
+        agents: data.agents.map((agent) => ({
+            ...agent,
+            startTime: new Date(agent.startTime),
+            endTime: agent.endTime ? new Date(agent.endTime) : undefined,
+        })),
+        todos: data.todos.map((todo) => ({ ...todo })),
+        sessionStart: data.sessionStart ? new Date(data.sessionStart) : undefined,
+        sessionName: data.sessionName,
+    };
+}
+function readTranscriptCache(transcriptPath, state) {
+    try {
+        const cachePath = getTranscriptCachePath(transcriptPath, os.homedir());
+        const raw = fs.readFileSync(cachePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed.transcriptPath !== path.resolve(transcriptPath)
+            || parsed.transcriptState?.mtimeMs !== state.mtimeMs
+            || parsed.transcriptState?.size !== state.size) {
+            return null;
+        }
+        return deserializeTranscriptData(parsed.data);
+    }
+    catch {
+        return null;
+    }
+}
+function writeTranscriptCache(transcriptPath, state, data) {
+    try {
+        const cachePath = getTranscriptCachePath(transcriptPath, os.homedir());
+        fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+        const payload = {
+            transcriptPath: path.resolve(transcriptPath),
+            transcriptState: state,
+            data: serializeTranscriptData(data),
+        };
+        fs.writeFileSync(cachePath, JSON.stringify(payload), 'utf8');
+    }
+    catch {
+        // Cache failures are non-fatal; fall back to fresh parsing next time.
+    }
+}
 export async function parseTranscript(transcriptPath) {
     const result = {
         tools: [],
@@ -9,14 +98,23 @@ export async function parseTranscript(transcriptPath) {
     if (!transcriptPath || !fs.existsSync(transcriptPath)) {
         return result;
     }
+    const transcriptState = readTranscriptFileState(transcriptPath);
+    if (!transcriptState) {
+        return result;
+    }
+    const cached = readTranscriptCache(transcriptPath, transcriptState);
+    if (cached) {
+        return cached;
+    }
     const toolMap = new Map();
     const agentMap = new Map();
     let latestTodos = [];
     const taskIdToIndex = new Map();
     let latestSlug;
     let customTitle;
+    let parsedCleanly = false;
     try {
-        const fileStream = fs.createReadStream(transcriptPath);
+        const fileStream = createReadStreamImpl(transcriptPath);
         const rl = readline.createInterface({
             input: fileStream,
             crlfDelay: Infinity,
@@ -38,6 +136,7 @@ export async function parseTranscript(transcriptPath) {
                 // Skip malformed lines
             }
         }
+        parsedCleanly = true;
     }
     catch {
         // Return partial results on error
@@ -46,7 +145,13 @@ export async function parseTranscript(transcriptPath) {
     result.agents = Array.from(agentMap.values()).slice(-10);
     result.todos = latestTodos;
     result.sessionName = customTitle ?? latestSlug;
+    if (parsedCleanly) {
+        writeTranscriptCache(transcriptPath, transcriptState, result);
+    }
     return result;
+}
+export function _setCreateReadStreamForTests(impl) {
+    createReadStreamImpl = impl ?? fs.createReadStream;
 }
 function processEntry(entry, toolMap, agentMap, taskIdToIndex, latestTodos, result) {
     const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();

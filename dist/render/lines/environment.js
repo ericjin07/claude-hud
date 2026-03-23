@@ -1,4 +1,4 @@
-import { dim } from '../colors.js';
+import { label } from '../colors.js';
 export function renderEnvironmentLine(ctx) {
     const display = ctx.config?.display;
     if (display?.showConfigCounts === false) {
@@ -25,6 +25,6 @@ export function renderEnvironmentLine(ctx) {
     if (parts.length === 0) {
         return null;
     }
-    return dim(parts.join(' | '));
+    return label(parts.join(' | '), ctx.config?.colors);
 }
 //# sourceMappingURL=environment.js.map

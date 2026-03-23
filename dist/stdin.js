@@ -97,6 +97,36 @@ export function getProviderLabel(stdin) {
     }
     return null;
 }
+function parseRateLimitPercent(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+    return Math.round(Math.min(100, Math.max(0, value)));
+}
+function parseRateLimitResetAt(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+    return new Date(value * 1000);
+}
+export function getUsageFromStdin(stdin) {
+    const rateLimits = stdin.rate_limits;
+    if (!rateLimits) {
+        return null;
+    }
+    const fiveHour = parseRateLimitPercent(rateLimits.five_hour?.used_percentage);
+    const sevenDay = parseRateLimitPercent(rateLimits.seven_day?.used_percentage);
+    if (fiveHour === null && sevenDay === null) {
+        return null;
+    }
+    return {
+        planName: null,
+        fiveHour,
+        sevenDay,
+        fiveHourResetAt: parseRateLimitResetAt(rateLimits.five_hour?.resets_at),
+        sevenDayResetAt: parseRateLimitResetAt(rateLimits.seven_day?.resets_at),
+    };
+}
 function normalizeBedrockModelLabel(modelId) {
     if (!isBedrockModelId(modelId)) {
         return null;

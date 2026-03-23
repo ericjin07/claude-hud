@@ -6,6 +6,7 @@ export const DEFAULT_ELEMENT_ORDER = [
     'project',
     'context',
     'usage',
+    'memory',
     'environment',
     'tools',
     'agents',
@@ -38,6 +39,8 @@ export const DEFAULT_CONFIG = {
         showAgents: false,
         showTodos: false,
         showSessionName: false,
+        showClaudeCodeVersion: false,
+        showMemoryUsage: false,
         autocompactBuffer: 'enabled',
         usageThreshold: 0,
         sevenDayThreshold: 80,
@@ -54,6 +57,12 @@ export const DEFAULT_CONFIG = {
         warning: 'yellow',
         usageWarning: 'brightMagenta',
         critical: 'red',
+        model: 'cyan',
+        project: 'yellow',
+        git: 'magenta',
+        gitBranch: 'cyan',
+        label: 'dim',
+        custom: 208,
     },
 };
 export function getConfigPath() {
@@ -70,10 +79,11 @@ function validateAutocompactBuffer(value) {
     return value === 'enabled' || value === 'disabled';
 }
 function validateContextValue(value) {
-    return value === 'percent' || value === 'tokens' || value === 'remaining';
+    return value === 'percent' || value === 'tokens' || value === 'remaining' || value === 'both';
 }
 function validateColorName(value) {
-    return value === 'red'
+    return value === 'dim'
+        || value === 'red'
         || value === 'green'
         || value === 'yellow'
         || value === 'magenta'
@@ -142,11 +152,6 @@ function validateThreshold(value, max = 100) {
     if (typeof value !== 'number')
         return 0;
     return Math.max(0, Math.min(max, value));
-}
-function validatePositiveInt(value, defaultValue) {
-    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)
-        return defaultValue;
-    return value;
 }
 export function mergeConfig(userConfig) {
     const migrated = migrateConfig(userConfig);
@@ -217,6 +222,12 @@ export function mergeConfig(userConfig) {
         showSessionName: typeof migrated.display?.showSessionName === 'boolean'
             ? migrated.display.showSessionName
             : DEFAULT_CONFIG.display.showSessionName,
+        showClaudeCodeVersion: typeof migrated.display?.showClaudeCodeVersion === 'boolean'
+            ? migrated.display.showClaudeCodeVersion
+            : DEFAULT_CONFIG.display.showClaudeCodeVersion,
+        showMemoryUsage: typeof migrated.display?.showMemoryUsage === 'boolean'
+            ? migrated.display.showMemoryUsage
+            : DEFAULT_CONFIG.display.showMemoryUsage,
         autocompactBuffer: validateAutocompactBuffer(migrated.display?.autocompactBuffer)
             ? migrated.display.autocompactBuffer
             : DEFAULT_CONFIG.display.autocompactBuffer,
@@ -226,10 +237,6 @@ export function mergeConfig(userConfig) {
         customLine: typeof migrated.display?.customLine === 'string'
             ? migrated.display.customLine.slice(0, 80)
             : DEFAULT_CONFIG.display.customLine,
-    };
-    const usage = {
-        cacheTtlSeconds: validatePositiveInt(migrated.usage?.cacheTtlSeconds, DEFAULT_CONFIG.usage.cacheTtlSeconds),
-        failureCacheTtlSeconds: validatePositiveInt(migrated.usage?.failureCacheTtlSeconds, DEFAULT_CONFIG.usage.failureCacheTtlSeconds),
     };
     const colors = {
         context: validateColorValue(migrated.colors?.context)
@@ -247,8 +254,34 @@ export function mergeConfig(userConfig) {
         critical: validateColorValue(migrated.colors?.critical)
             ? migrated.colors.critical
             : DEFAULT_CONFIG.colors.critical,
+        model: validateColorValue(migrated.colors?.model)
+            ? migrated.colors.model
+            : DEFAULT_CONFIG.colors.model,
+        project: validateColorValue(migrated.colors?.project)
+            ? migrated.colors.project
+            : DEFAULT_CONFIG.colors.project,
+        git: validateColorValue(migrated.colors?.git)
+            ? migrated.colors.git
+            : DEFAULT_CONFIG.colors.git,
+        gitBranch: validateColorValue(migrated.colors?.gitBranch)
+            ? migrated.colors.gitBranch
+            : DEFAULT_CONFIG.colors.gitBranch,
+        label: validateColorValue(migrated.colors?.label)
+            ? migrated.colors.label
+            : DEFAULT_CONFIG.colors.label,
+        custom: validateColorValue(migrated.colors?.custom)
+            ? migrated.colors.custom
+            : DEFAULT_CONFIG.colors.custom,
     };
-    return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, usage, colors };
+    const usage = {
+        cacheTtlSeconds: typeof migrated.usage?.cacheTtlSeconds === 'number'
+            ? migrated.usage.cacheTtlSeconds
+            : DEFAULT_CONFIG.usage.cacheTtlSeconds,
+        failureCacheTtlSeconds: typeof migrated.usage?.failureCacheTtlSeconds === 'number'
+            ? migrated.usage.failureCacheTtlSeconds
+            : DEFAULT_CONFIG.usage.failureCacheTtlSeconds,
+    };
+    return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, colors, usage };
 }
 export async function loadConfig() {
     const configPath = getConfigPath();
