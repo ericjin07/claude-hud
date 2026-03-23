@@ -137,13 +137,22 @@ claude --plugindir /home/ericjin/Projects/claude-hud/.worktrees/minimax-usage
 
 ### Pushing Changes
 
+**IMPORTANT: After ANY update to minimax-usage branch, ALWAYS merge to main:**
+
 ```bash
-# Push minimax-usage branch to origin (ericjin07/claude-hud)
+# 1. In minimax-usage worktree: push changes
+cd .worktrees/minimax-usage
+git add -A && git commit -m "your message"
 git push origin minimax-usage
 
-# Or create a PR to upstream
-gh pr create --base main --head ericjin07:minimax-usage
+# 2. In main directory: merge minimax-usage and push
+cd /home/ericjin/Projects/claude-hud
+git fetch origin minimax-usage
+git merge origin/minimax-usage --no-edit
+git push origin main
 ```
+
+**This ensures users get the latest changes via `/plugin update claude-hud`.**
 
 ### Installation
 
