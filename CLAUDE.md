@@ -149,6 +149,32 @@ gh pr create --base main --head ericjin07:minimax-usage
 
 The plugin is installed from `ericjin07/claude-hud` fork via `/plugin install claude-hud`. It uses the `minimax-usage` branch.
 
+### Version Update Workflow
+
+When version number is bumped in `package.json`, update the plugin cache:
+
+```bash
+# 1. Build in marketplace (or worktree)
+cd ~/.claude/plugins/marketplaces/claude-hud
+git pull origin main
+npm ci && npm run build
+
+# 2. Create new version directory and copy files
+VERSION=$(node -p "require('./package.json').version")
+mkdir -p ~/.claude/plugins/cache/claude-hud/claude-hud/$VERSION
+cp -r ~/.claude/plugins/marketplaces/claude-hud/* ~/.claude/plugins/cache/claude-hud/claude-hud/$VERSION/
+
+# 3. Update version in cache plugin files
+sed -i "s/\"version\": \"[0-9.]*\"/\"version\": \"$VERSION\"/" ~/.claude/plugins/cache/claude-hud/claude-hud/$VERSION/.claude-plugin/plugin.json
+sed -i "s/\"version\": \"[0-9.]*\"/\"version\": \"$VERSION\"/" ~/.claude/plugins/cache/claude-hud/claude-hud/$VERSION/.claude-plugin/marketplace.json
+
+# 4. Update settings.json path (if using manual path)
+# Change .../0.0.X/dist/index.js to new version
+
+# 5. Reload plugins
+/reload-plugins
+```
+
 ## Dependencies
 
 - **Runtime**: Node.js 18+ or Bun
