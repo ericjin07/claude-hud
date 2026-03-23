@@ -197,7 +197,7 @@ export async function getMiniMaxUsage(overrides: Partial<MiniMaxUsageDeps> = {})
   let holdsLock = false;
   if (tryAcquireCacheLock(homeDir)) {
     holdsLock = true;
-  } else if (cached) {
+  } else if (cached?.isFresh) {
     return cached.data;
   }
 
