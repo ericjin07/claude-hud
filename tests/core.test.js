@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _setCreateReadStreamForTests, parseTranscript } from '../dist/transcript.js';
 import { countConfigs } from '../dist/config-reader.js';
-import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getUsageFromStdin, isBedrockModelId, stripContextSuffix } from '../dist/stdin.js';
+import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getUsageFromStdin, isBedrockModelId, stripContextSuffix, formatModelName } from '../dist/stdin.js';
 import * as fs from 'node:fs';
 
 function restoreEnvVar(name, value) {
@@ -275,19 +275,6 @@ test('getModelName precedence: trimmed display name, then normalized bedrock lab
   assert.equal(getModelName({}), 'Unknown');
 });
 
-test('getModelName strips redundant context-window suffixes from display_name', () => {
-  // Common patterns seen from Claude Code stdin
-  assert.equal(getModelName({ model: { display_name: 'Opus 4.6 (1M context)' } }), 'Opus 4.6');
-  assert.equal(getModelName({ model: { display_name: 'Sonnet 4 (200k context)' } }), 'Sonnet 4');
-  assert.equal(getModelName({ model: { display_name: 'Claude 3.5 Haiku (200k context)' } }), 'Claude 3.5 Haiku');
-  assert.equal(getModelName({ model: { display_name: 'Claude 3.5 (with 1M context)' } }), 'Claude 3.5');
-  // Case-insensitive matching
-  assert.equal(getModelName({ model: { display_name: 'Opus (1M Context)' } }), 'Opus');
-  // Names without context suffix are unchanged
-  assert.equal(getModelName({ model: { display_name: 'Sonnet 4.6' } }), 'Sonnet 4.6');
-  assert.equal(getModelName({ model: { display_name: 'Claude Opus' } }), 'Claude Opus');
-});
-
 test('stripContextSuffix removes parenthetical context-window info', () => {
   assert.equal(stripContextSuffix('Opus 4.6 (1M context)'), 'Opus 4.6');
   assert.equal(stripContextSuffix('Sonnet 4 (200k context)'), 'Sonnet 4');
@@ -302,6 +289,34 @@ test('stripContextSuffix removes parenthetical context-window info', () => {
   // No-op when no suffix present
   assert.equal(stripContextSuffix('Sonnet 4.6'), 'Sonnet 4.6');
   assert.equal(stripContextSuffix(''), '');
+});
+
+test('formatModelName full mode returns name unchanged', () => {
+  assert.equal(formatModelName('Opus 4.6 (1M context)', 'full'), 'Opus 4.6 (1M context)');
+  assert.equal(formatModelName('Claude Sonnet 3.5', 'full'), 'Claude Sonnet 3.5');
+  // undefined format defaults to full (backward-compatible)
+  assert.equal(formatModelName('Opus 4.6 (1M context)'), 'Opus 4.6 (1M context)');
+});
+
+test('formatModelName compact mode strips context suffix only', () => {
+  assert.equal(formatModelName('Opus 4.6 (1M context)', 'compact'), 'Opus 4.6');
+  assert.equal(formatModelName('Claude Sonnet 3.5 (200k context)', 'compact'), 'Claude Sonnet 3.5');
+  assert.equal(formatModelName('Claude Haiku (with 1M context)', 'compact'), 'Claude Haiku');
+  // Preserves "Claude " prefix in compact mode
+  assert.equal(formatModelName('Claude Opus 4.5', 'compact'), 'Claude Opus 4.5');
+  // Preserves non-context parentheticals
+  assert.equal(formatModelName('Model (beta)', 'compact'), 'Model (beta)');
+});
+
+test('formatModelName short mode strips context suffix and Claude prefix', () => {
+  assert.equal(formatModelName('Claude Opus 4.5 (1M context)', 'short'), 'Opus 4.5');
+  assert.equal(formatModelName('Claude Sonnet 3.5 (200k context)', 'short'), 'Sonnet 3.5');
+  assert.equal(formatModelName('Claude Haiku', 'short'), 'Haiku');
+  // Already short names are unchanged
+  assert.equal(formatModelName('Opus 4.6', 'short'), 'Opus 4.6');
+  assert.equal(formatModelName('Sonnet', 'short'), 'Sonnet');
+  // Case-insensitive Claude prefix removal
+  assert.equal(formatModelName('claude Opus 4.5', 'short'), 'Opus 4.5');
 });
 
 test('bedrock model detection recognizes bedrock ids', () => {

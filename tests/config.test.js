@@ -118,6 +118,23 @@ test('mergeConfig preserves customLine and truncates long values', () => {
   assert.equal(config.display.customLine, customLine.slice(0, 80));
 });
 
+test('mergeConfig defaults modelFormat to full', () => {
+  const config = mergeConfig({});
+  assert.equal(config.display.modelFormat, 'full');
+});
+
+test('mergeConfig preserves valid modelFormat values', () => {
+  assert.equal(mergeConfig({ display: { modelFormat: 'compact' } }).display.modelFormat, 'compact');
+  assert.equal(mergeConfig({ display: { modelFormat: 'short' } }).display.modelFormat, 'short');
+  assert.equal(mergeConfig({ display: { modelFormat: 'full' } }).display.modelFormat, 'full');
+});
+
+test('mergeConfig falls back to full for invalid modelFormat', () => {
+  assert.equal(mergeConfig({ display: { modelFormat: 'invalid' } }).display.modelFormat, 'full');
+  assert.equal(mergeConfig({ display: { modelFormat: 123 } }).display.modelFormat, 'full');
+  assert.equal(mergeConfig({ display: { modelFormat: null } }).display.modelFormat, 'full');
+});
+
 test('getConfigPath respects CLAUDE_CONFIG_DIR', async () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const customConfigDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-config-dir-'));

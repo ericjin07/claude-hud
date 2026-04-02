@@ -1,4 +1,5 @@
 import type { StdinData, UsageData } from './types.js';
+import type { ModelFormatMode } from './config.js';
 import { AUTOCOMPACT_BUFFER_PERCENT } from './constants.js';
 
 export async function readStdin(): Promise<StdinData | null> {
@@ -88,26 +89,10 @@ export function getBufferedPercent(stdin: StdinData): number {
   return Math.min(100, Math.round(((totalTokens + buffer) / size) * 100));
 }
 
-/**
- * Strips redundant context-window size suffixes from model display names.
- *
- * Claude Code may include the context window size in the display name
- * (e.g. "Opus 4.6 (1M context)"), but the HUD already shows context
- * usage via the context bar — so the parenthetical is redundant.
- *
- * Handles common variants:
- *   "Opus 4.6 (1M context)"         → "Opus 4.6"
- *   "Sonnet 4 (200k context)"       → "Sonnet 4"
- *   "Claude 3.5 (with 1M context)"  → "Claude 3.5"
- */
-export function stripContextSuffix(name: string): string {
-  return name.replace(/\s*\([^)]*\bcontext\b[^)]*\)/i, '').trim();
-}
-
 export function getModelName(stdin: StdinData): string {
   const displayName = stdin.model?.display_name?.trim();
   if (displayName) {
-    return stripContextSuffix(displayName);
+    return displayName;
   }
 
   const modelId = stdin.model?.id?.trim();
@@ -168,6 +153,38 @@ export function getUsageFromStdin(stdin: StdinData): UsageData | null {
     fiveHourResetAt: parseRateLimitResetAt(rateLimits.five_hour?.resets_at),
     sevenDayResetAt: parseRateLimitResetAt(rateLimits.seven_day?.resets_at),
   };
+}
+
+/**
+ * Strips redundant context-window size suffixes from model display names.
+ *
+ * Claude Code may include the context window size in the display name
+ * (e.g. "Opus 4.6 (1M context)"), but the HUD already shows context
+ * usage via the context bar — so the parenthetical is redundant.
+ */
+export function stripContextSuffix(name: string): string {
+  return name.replace(/\s*\([^)]*\bcontext\b[^)]*\)/i, '').trim();
+}
+
+/**
+ * Formats a model name according to the user's chosen display format.
+ *
+ *   full:    Return raw name unchanged   (e.g. "Opus 4.6 (1M context)")
+ *   compact: Strip context-window suffix (e.g. "Opus 4.6")
+ *   short:   Strip context suffix AND leading "Claude " prefix (e.g. "Opus 4.6")
+ */
+export function formatModelName(name: string, format?: ModelFormatMode): string {
+  if (!format || format === 'full') {
+    return name;
+  }
+
+  let result = stripContextSuffix(name);
+
+  if (format === 'short') {
+    result = result.replace(/^Claude\s+/i, '');
+  }
+
+  return result;
 }
 
 function normalizeBedrockModelLabel(modelId: string): string | null {

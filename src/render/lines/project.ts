@@ -1,5 +1,5 @@
 import type { RenderContext } from '../../types.js';
-import { getModelName, getProviderLabel } from '../../stdin.js';
+import { getModelName, formatModelName, getProviderLabel } from '../../stdin.js';
 import { getOutputSpeed } from '../../speed-tracker.js';
 import { git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, custom as customColor } from '../colors.js';
 
@@ -9,7 +9,7 @@ export function renderProjectLine(ctx: RenderContext): string | null {
   const parts: string[] = [];
 
   if (display?.showModel !== false) {
-    const model = getModelName(ctx.stdin);
+    const model = formatModelName(getModelName(ctx.stdin), ctx.config?.display?.modelFormat);
     const providerLabel = getProviderLabel(ctx.stdin);
     const showUsage = display?.showUsage !== false;
     const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
