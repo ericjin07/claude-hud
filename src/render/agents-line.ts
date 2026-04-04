@@ -34,14 +34,11 @@ export function renderAgentsLine(ctx: RenderContext): string | null {
 }
 
 function getStatusIcon(
-  status: AgentEntry['status'],
-  colors?: RenderContext['config']['colors']
+  status: AgentEntry['status']
 ): string {
   switch (status) {
     case 'running':
       return yellow('◐');
-    case 'failed':
-      return label('✗', colors);
     case 'completed':
     default:
       return green('✓');
@@ -52,7 +49,7 @@ function formatAgent(
   agent: AgentEntry,
   colors?: RenderContext['config']['colors']
 ): string {
-  const statusIcon = getStatusIcon(agent.status, colors);
+  const statusIcon = getStatusIcon(agent.status);
   const type = magenta(agent.type);
   const model = agent.model ? label(`[${agent.model}]`, colors) : '';
   const desc = agent.description

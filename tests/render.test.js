@@ -760,6 +760,39 @@ test('renderAgentsLine renders running agents with live elapsed time', () => {
     Date.now = originalNow;
   }
 });
+
+test('renderAgentsLine formats elapsed time in hours for long-running agents', () => {
+  const ctx = baseContext();
+  ctx.transcript.agents = [
+    {
+      id: 'agent-1',
+      type: 'plan',
+      status: 'completed',
+      startTime: new Date(0),
+      endTime: new Date((2 * 60 * 60 + 5 * 60) * 1000),
+    },
+  ];
+
+  const line = renderAgentsLine(ctx);
+  assert.ok(line?.includes('2h 5m'));
+});
+
+test('renderAgentsLine clamps negative elapsed time to under one second', () => {
+  const ctx = baseContext();
+  ctx.transcript.agents = [
+    {
+      id: 'agent-1',
+      type: 'plan',
+      status: 'completed',
+      startTime: new Date(5000),
+      endTime: new Date(1000),
+    },
+  ];
+
+  const line = renderAgentsLine(ctx);
+  assert.ok(line?.includes('<1s'));
+});
+
 test('renderTodosLine handles in-progress and completed-only cases', () => {
   const ctx = baseContext();
   ctx.transcript.todos = [
