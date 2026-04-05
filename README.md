@@ -166,7 +166,7 @@ Chinese HUD labels are available as an explicit opt-in. English stays the defaul
 | `display.showContextBar` | boolean | true | Show visual context bar `████░░░░░░` |
 | `display.contextValue` | `percent` \| `tokens` \| `remaining` \| `both` | `percent` | Context display format (`45%`, `45k/200k`, `55%` remaining, or `45% (45k/200k)`) |
 | `display.showConfigCounts` | boolean | false | Show CLAUDE.md, rules, MCPs, hooks counts |
-| `display.showCost` | boolean | false | Show an offline estimated session cost from transcript token usage for known Anthropic model families |
+| `display.showCost` | boolean | false | Show session cost using Claude Code's native `cost.total_cost_usd` when available, with a local estimate fallback for direct Anthropic sessions |
 | `display.showOutputStyle` | boolean | false | Show the active Claude Code `outputStyle` from settings files as `style: <name>` |
 | `display.showDuration` | boolean | false | Show session duration `⏱️ 5m` |
 | `display.showSpeed` | boolean | false | Show output token speed `out: 42.1 tok/s` |
@@ -196,7 +196,7 @@ Supported color names: `dim`, `red`, `green`, `yellow`, `magenta`, `cyan`, `brig
 
 `display.showMemoryUsage` is fully opt-in and only renders in `expanded` layout. It reports approximate system RAM usage from the local machine, not precise memory pressure inside Claude Code or a specific process. The number may overstate actual pressure because reclaimable OS cache and buffers can still be counted as used memory.
 
-`display.showCost` is fully opt-in. It uses built-in Anthropic family pricing to estimate session cost from transcript token usage and stays hidden when pricing cannot be matched confidently, such as Bedrock-routed sessions or unknown model names. The value is intentionally labeled as an estimate and may lag future pricing changes.
+`display.showCost` is fully opt-in. ClaudeHUD prefers the native `cost.total_cost_usd` field that Claude Code provides on stdin when it is available. If that field is absent or invalid for a direct Anthropic session, ClaudeHUD falls back to the existing local transcript-based estimate so the cost line still works on older payloads. The native field is absent before the first API response in a session, so the cost display may stay hidden until then. ClaudeHUD also keeps the cost hidden for known routed providers such as Bedrock, because cloud-provider billed sessions may report `$0.00` or omit the field even though the session was not literally free.
 
 ### Usage Limits
 
