@@ -5,6 +5,8 @@ import { getHudPluginDir } from './claude-config-dir.js';
 import type { Language } from './i18n/types.js';
 
 export type LineLayoutType = 'compact' | 'expanded';
+export type UsageProviderKind = 'minimax' | 'stdin' | 'external-file' | 'http-json' | 'anthropic-oauth';
+export type UsageProviderAuthType = 'none' | 'bearer-env' | 'header-env';
 
 export type AutocompactBufferMode = 'enabled' | 'disabled';
 export type ContextValueMode = 'percent' | 'tokens' | 'remaining' | 'both';
@@ -45,6 +47,41 @@ export interface HudColorOverrides {
   gitBranch: HudColorValue;
   label: HudColorValue;
   custom: HudColorValue;
+}
+
+export interface UsageProviderWindowMapping {
+  key: string;
+  label: string;
+  usedPercentPath?: string;
+  remainingPercentPath?: string;
+  resetAtPath?: string;
+}
+
+export interface UsageProviderResponseMapping {
+  planNamePath?: string;
+  windows?: UsageProviderWindowMapping[];
+}
+
+export interface UsageProviderAuthConfig {
+  type: UsageProviderAuthType;
+  envName?: string;
+  headerName?: string;
+}
+
+export interface UsageProviderSourceConfig {
+  kind: UsageProviderKind;
+  endpoint?: string;
+  path?: string;
+  auth?: UsageProviderAuthConfig;
+  responseMapping?: UsageProviderResponseMapping;
+}
+
+export interface UsageProviderDefinition {
+  id: string;
+  label: string;
+  enabled: boolean;
+  modelMatchers: string[];
+  usageSource: UsageProviderSourceConfig;
 }
 
 export const DEFAULT_ELEMENT_ORDER: HudElement[] = [
@@ -121,8 +158,64 @@ export interface HudConfig {
   usage: {
     cacheTtlSeconds: number;
     failureCacheTtlSeconds: number;
+    providerDefinitions: UsageProviderDefinition[];
   };
   colors: HudColorOverrides;
+}
+
+export const DEFAULT_PROVIDER_DEFINITIONS: UsageProviderDefinition[] = [
+  {
+    id: 'minimax',
+    label: 'MiniMax',
+    enabled: true,
+    modelMatchers: ['minimax'],
+    usageSource: { kind: 'minimax' },
+  },
+  {
+    id: 'claude',
+    label: 'Claude',
+    enabled: true,
+    modelMatchers: [],
+    usageSource: { kind: 'stdin' },
+  },
+  {
+    id: 'external-fallback',
+    label: 'External Fallback',
+    enabled: true,
+    modelMatchers: [],
+    usageSource: { kind: 'external-file' },
+  },
+];
+
+function cloneProviderDefinition(provider: UsageProviderDefinition): UsageProviderDefinition {
+  return {
+    id: provider.id,
+    label: provider.label,
+    enabled: provider.enabled,
+    modelMatchers: [...provider.modelMatchers],
+    usageSource: {
+      kind: provider.usageSource.kind,
+      ...(provider.usageSource.endpoint ? { endpoint: provider.usageSource.endpoint } : {}),
+      ...(provider.usageSource.path ? { path: provider.usageSource.path } : {}),
+      ...(provider.usageSource.auth ? { auth: { ...provider.usageSource.auth } } : {}),
+      ...(provider.usageSource.responseMapping
+        ? {
+            responseMapping: {
+              ...(provider.usageSource.responseMapping.planNamePath
+                ? { planNamePath: provider.usageSource.responseMapping.planNamePath }
+                : {}),
+              ...(provider.usageSource.responseMapping.windows
+                ? {
+                    windows: provider.usageSource.responseMapping.windows.map((window) => ({
+                      ...window,
+                    })),
+                  }
+                : {}),
+            },
+          }
+        : {}),
+    },
+  };
 }
 
 export const DEFAULT_CONFIG: HudConfig = {
@@ -181,6 +274,7 @@ export const DEFAULT_CONFIG: HudConfig = {
   usage: {
     cacheTtlSeconds: 60,
     failureCacheTtlSeconds: 15,
+    providerDefinitions: DEFAULT_PROVIDER_DEFINITIONS.map(cloneProviderDefinition),
   },
   colors: {
     context: 'green',
@@ -388,6 +482,130 @@ function validateFreshnessMs(value: unknown): number {
   return Math.max(0, Math.floor(value));
 }
 
+function validateProviderKind(value: unknown): value is UsageProviderKind {
+  return value === 'minimax'
+    || value === 'stdin'
+    || value === 'external-file'
+    || value === 'http-json'
+    || value === 'anthropic-oauth';
+}
+
+function validateProviderAuthType(value: unknown): value is UsageProviderAuthType {
+  return value === 'none' || value === 'bearer-env' || value === 'header-env';
+}
+
+function normalizeProviderWindows(value: unknown): UsageProviderWindowMapping[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+
+  const windows: UsageProviderWindowMapping[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const windowMapping = entry as UsageProviderWindowMapping;
+
+    const key = typeof windowMapping.key === 'string'
+      ? windowMapping.key.trim()
+      : '';
+    const label = typeof windowMapping.label === 'string'
+      ? windowMapping.label.trim()
+      : '';
+
+    if (!key || !label) {
+      continue;
+    }
+
+    windows.push({
+      key,
+      label,
+      usedPercentPath: typeof windowMapping.usedPercentPath === 'string'
+        ? windowMapping.usedPercentPath.trim()
+        : undefined,
+      remainingPercentPath: typeof windowMapping.remainingPercentPath === 'string'
+        ? windowMapping.remainingPercentPath.trim()
+        : undefined,
+      resetAtPath: typeof windowMapping.resetAtPath === 'string'
+        ? windowMapping.resetAtPath.trim()
+        : undefined,
+    });
+  }
+
+  return windows.length > 0 ? windows : undefined;
+}
+
+function normalizeProviderDefinitions(value: unknown): UsageProviderDefinition[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return DEFAULT_PROVIDER_DEFINITIONS.map(cloneProviderDefinition);
+  }
+
+  const providers: UsageProviderDefinition[] = [];
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const raw = entry as Partial<UsageProviderDefinition>;
+    const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+    const label = typeof raw.label === 'string' ? raw.label.trim() : id;
+    const kind = raw.usageSource?.kind;
+
+    if (!id || !label || !validateProviderKind(kind)) {
+      continue;
+    }
+
+    const modelMatchers = Array.isArray(raw.modelMatchers)
+      ? raw.modelMatchers.filter((matcher): matcher is string => typeof matcher === 'string' && matcher.trim().length > 0)
+          .map((matcher) => matcher.trim())
+      : [];
+
+    const auth = raw.usageSource?.auth && validateProviderAuthType(raw.usageSource.auth.type)
+      ? {
+          type: raw.usageSource.auth.type,
+          envName: typeof raw.usageSource.auth.envName === 'string' ? raw.usageSource.auth.envName.trim() : undefined,
+          headerName: typeof raw.usageSource.auth.headerName === 'string' ? raw.usageSource.auth.headerName.trim() : undefined,
+        }
+      : undefined;
+
+    providers.push({
+      id,
+      label,
+      enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true,
+      modelMatchers,
+      usageSource: {
+        kind,
+        ...(typeof raw.usageSource?.endpoint === 'string' && raw.usageSource.endpoint.trim().length > 0
+          ? { endpoint: raw.usageSource.endpoint.trim() }
+          : {}),
+        ...(typeof raw.usageSource?.path === 'string' && raw.usageSource.path.trim().length > 0
+          ? { path: raw.usageSource.path.trim() }
+          : {}),
+        ...(auth ? { auth } : {}),
+        ...(raw.usageSource?.responseMapping
+          ? {
+              responseMapping: {
+                ...(typeof raw.usageSource.responseMapping.planNamePath === 'string'
+                  && raw.usageSource.responseMapping.planNamePath.trim().length > 0
+                  ? { planNamePath: raw.usageSource.responseMapping.planNamePath.trim() }
+                  : {}),
+                ...(normalizeProviderWindows(raw.usageSource.responseMapping.windows)
+                  ? { windows: normalizeProviderWindows(raw.usageSource.responseMapping.windows) }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+    });
+  }
+
+  return providers.length > 0
+    ? providers
+    : DEFAULT_PROVIDER_DEFINITIONS.map(cloneProviderDefinition);
+}
+
 export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
   const migrated = migrateConfig(userConfig);
   const language = validateLanguage(migrated.language)
@@ -567,12 +785,15 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
   };
 
   const usage = {
-    cacheTtlSeconds: typeof migrated.usage?.cacheTtlSeconds === 'number'
-      ? migrated.usage.cacheTtlSeconds
-      : DEFAULT_CONFIG.usage.cacheTtlSeconds,
-    failureCacheTtlSeconds: typeof migrated.usage?.failureCacheTtlSeconds === 'number'
-      ? migrated.usage.failureCacheTtlSeconds
-      : DEFAULT_CONFIG.usage.failureCacheTtlSeconds,
+    cacheTtlSeconds: validateDurationSeconds(
+      migrated.usage?.cacheTtlSeconds,
+      DEFAULT_CONFIG.usage.cacheTtlSeconds,
+    ),
+    failureCacheTtlSeconds: validateDurationSeconds(
+      migrated.usage?.failureCacheTtlSeconds,
+      DEFAULT_CONFIG.usage.failureCacheTtlSeconds,
+    ),
+    providerDefinitions: normalizeProviderDefinitions(migrated.usage?.providerDefinitions),
   };
 
   return { language, lineLayout, showSeparators, pathLevels, maxWidth, elementOrder, gitStatus, display, usage, colors };

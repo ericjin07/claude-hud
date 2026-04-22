@@ -10,12 +10,15 @@ import { getMemoryUsage } from "./memory.js";
 import { getMiniMaxUsage } from "./minimax-usage.js";
 import { applyContextWindowFallback } from "./context-cache.js";
 import { getUsageFromExternalSnapshot } from "./external-usage.js";
+import { getUsage as getAnthropicUsage } from "./usage-api.js";
 import type { RenderContext, StdinData, NormalizedUsageData } from "./types.js";
 export { getUsageFromExternalSnapshot } from "./external-usage.js";
 export type MainDeps = {
     readStdin: typeof readStdin;
     getUsageFromStdin: typeof getUsageFromStdin;
     getUsageFromExternalSnapshot: typeof getUsageFromExternalSnapshot;
+    getAnthropicUsage: typeof getAnthropicUsage;
+    getConfiguredModel: () => string | null;
     parseTranscript: typeof parseTranscript;
     countConfigs: typeof countConfigs;
     getGitStatus: typeof getGitStatus;
@@ -27,6 +30,7 @@ export type MainDeps = {
     getMiniMaxUsage: typeof getMiniMaxUsage;
     applyContextWindowFallback: typeof applyContextWindowFallback;
     render: typeof render;
+    homeDir: () => string;
     now: () => number;
     log: (...args: unknown[]) => void;
 };
@@ -36,6 +40,13 @@ export type ResolveUsageContextDeps = {
     getMiniMaxUsage: MainDeps["getMiniMaxUsage"];
     getUsageFromStdin: MainDeps["getUsageFromStdin"];
     getUsageFromExternalSnapshot: MainDeps["getUsageFromExternalSnapshot"];
+    getAnthropicUsage?: MainDeps["getAnthropicUsage"];
+    getConfiguredModel?: MainDeps["getConfiguredModel"];
+    homeDir?: MainDeps["homeDir"];
+    fetchJson?: (request: {
+        endpoint: string;
+        headers: Record<string, string>;
+    }) => Promise<unknown>;
     now: () => number;
 };
 export declare function resolveUsageContext(deps: ResolveUsageContextDeps): Promise<NormalizedUsageData | null>;

@@ -1,5 +1,7 @@
 import type { Language } from './i18n/types.js';
 export type LineLayoutType = 'compact' | 'expanded';
+export type UsageProviderKind = 'minimax' | 'stdin' | 'external-file' | 'http-json' | 'anthropic-oauth';
+export type UsageProviderAuthType = 'none' | 'bearer-env' | 'header-env';
 export type AutocompactBufferMode = 'enabled' | 'disabled';
 export type ContextValueMode = 'percent' | 'tokens' | 'remaining' | 'both';
 export type GitBranchOverflowMode = 'truncate' | 'wrap';
@@ -28,6 +30,36 @@ export interface HudColorOverrides {
     gitBranch: HudColorValue;
     label: HudColorValue;
     custom: HudColorValue;
+}
+export interface UsageProviderWindowMapping {
+    key: string;
+    label: string;
+    usedPercentPath?: string;
+    remainingPercentPath?: string;
+    resetAtPath?: string;
+}
+export interface UsageProviderResponseMapping {
+    planNamePath?: string;
+    windows?: UsageProviderWindowMapping[];
+}
+export interface UsageProviderAuthConfig {
+    type: UsageProviderAuthType;
+    envName?: string;
+    headerName?: string;
+}
+export interface UsageProviderSourceConfig {
+    kind: UsageProviderKind;
+    endpoint?: string;
+    path?: string;
+    auth?: UsageProviderAuthConfig;
+    responseMapping?: UsageProviderResponseMapping;
+}
+export interface UsageProviderDefinition {
+    id: string;
+    label: string;
+    enabled: boolean;
+    modelMatchers: string[];
+    usageSource: UsageProviderSourceConfig;
 }
 export declare const DEFAULT_ELEMENT_ORDER: HudElement[];
 export declare const DEFAULT_MERGE_GROUPS: HudElement[][];
@@ -87,9 +119,11 @@ export interface HudConfig {
     usage: {
         cacheTtlSeconds: number;
         failureCacheTtlSeconds: number;
+        providerDefinitions: UsageProviderDefinition[];
     };
     colors: HudColorOverrides;
 }
+export declare const DEFAULT_PROVIDER_DEFINITIONS: UsageProviderDefinition[];
 export declare const DEFAULT_CONFIG: HudConfig;
 export declare function getConfigPath(): string;
 export declare function mergeConfig(userConfig: Partial<HudConfig>): HudConfig;

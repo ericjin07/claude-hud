@@ -24,8 +24,8 @@ function parseUpdatedAt(value) {
     const date = parseDateValue(value);
     return date ? date.getTime() : null;
 }
-export function getUsageFromExternalSnapshot(config, now = Date.now()) {
-    const snapshotPath = config.display.externalUsagePath;
+export function getUsageFromExternalSnapshot(config, now = Date.now(), snapshotPathOverride) {
+    const snapshotPath = snapshotPathOverride ?? config.display.externalUsagePath;
     if (!snapshotPath) {
         return null;
     }

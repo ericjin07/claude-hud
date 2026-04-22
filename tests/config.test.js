@@ -289,6 +289,57 @@ test('mergeConfig rejects invalid maxWidth', () => {
   assert.equal(mergeConfig({ maxWidth: Infinity }).maxWidth, null);
 });
 
+test('mergeConfig preserves valid usage provider definitions', () => {
+  const config = mergeConfig({
+    usage: {
+      providerDefinitions: [
+        { id: 'claude', label: 'Claude', usageSource: { kind: 'stdin' } },
+        { id: 'minimax', label: 'MiniMax', modelMatchers: ['minimax'], usageSource: { kind: 'minimax' } },
+      ],
+    },
+  });
+
+  assert.deepEqual(config.usage.providerDefinitions, [
+    { id: 'claude', label: 'Claude', enabled: true, modelMatchers: [], usageSource: { kind: 'stdin' } },
+    { id: 'minimax', label: 'MiniMax', enabled: true, modelMatchers: ['minimax'], usageSource: { kind: 'minimax' } },
+  ]);
+});
+
+test('mergeConfig defaults provider labels to provider ids when omitted', () => {
+  const config = mergeConfig({
+    usage: {
+      providerDefinitions: [
+        { id: 'custom-http', usageSource: { kind: 'http-json', endpoint: 'https://example.test/usage' } },
+      ],
+    },
+  });
+
+  assert.deepEqual(config.usage.providerDefinitions, [
+    {
+      id: 'custom-http',
+      label: 'custom-http',
+      enabled: true,
+      modelMatchers: [],
+      usageSource: {
+        kind: 'http-json',
+        endpoint: 'https://example.test/usage',
+      },
+    },
+  ]);
+});
+
+test('mergeConfig falls back to default provider definitions when invalid', () => {
+  const config = mergeConfig({
+    usage: {
+      providerDefinitions: [
+        { id: '', usageSource: { kind: 'invalid' } },
+      ],
+    },
+  });
+
+  assert.deepEqual(config.usage.providerDefinitions, DEFAULT_CONFIG.usage.providerDefinitions);
+});
+
 test('getConfigPath respects CLAUDE_CONFIG_DIR', async () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const customConfigDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-config-dir-'));

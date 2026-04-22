@@ -17,6 +17,59 @@ export const DEFAULT_MERGE_GROUPS = [
     ['context', 'usage'],
 ];
 const KNOWN_ELEMENTS = new Set(DEFAULT_ELEMENT_ORDER);
+export const DEFAULT_PROVIDER_DEFINITIONS = [
+    {
+        id: 'minimax',
+        label: 'MiniMax',
+        enabled: true,
+        modelMatchers: ['minimax'],
+        usageSource: { kind: 'minimax' },
+    },
+    {
+        id: 'claude',
+        label: 'Claude',
+        enabled: true,
+        modelMatchers: [],
+        usageSource: { kind: 'stdin' },
+    },
+    {
+        id: 'external-fallback',
+        label: 'External Fallback',
+        enabled: true,
+        modelMatchers: [],
+        usageSource: { kind: 'external-file' },
+    },
+];
+function cloneProviderDefinition(provider) {
+    return {
+        id: provider.id,
+        label: provider.label,
+        enabled: provider.enabled,
+        modelMatchers: [...provider.modelMatchers],
+        usageSource: {
+            kind: provider.usageSource.kind,
+            ...(provider.usageSource.endpoint ? { endpoint: provider.usageSource.endpoint } : {}),
+            ...(provider.usageSource.path ? { path: provider.usageSource.path } : {}),
+            ...(provider.usageSource.auth ? { auth: { ...provider.usageSource.auth } } : {}),
+            ...(provider.usageSource.responseMapping
+                ? {
+                    responseMapping: {
+                        ...(provider.usageSource.responseMapping.planNamePath
+                            ? { planNamePath: provider.usageSource.responseMapping.planNamePath }
+                            : {}),
+                        ...(provider.usageSource.responseMapping.windows
+                            ? {
+                                windows: provider.usageSource.responseMapping.windows.map((window) => ({
+                                    ...window,
+                                })),
+                            }
+                            : {}),
+                    },
+                }
+                : {}),
+        },
+    };
+}
 export const DEFAULT_CONFIG = {
     language: 'en',
     lineLayout: 'expanded',
@@ -73,6 +126,7 @@ export const DEFAULT_CONFIG = {
     usage: {
         cacheTtlSeconds: 60,
         failureCacheTtlSeconds: 15,
+        providerDefinitions: DEFAULT_PROVIDER_DEFINITIONS.map(cloneProviderDefinition),
     },
     colors: {
         context: 'green',
@@ -248,6 +302,112 @@ function validateFreshnessMs(value) {
     }
     return Math.max(0, Math.floor(value));
 }
+function validateProviderKind(value) {
+    return value === 'minimax'
+        || value === 'stdin'
+        || value === 'external-file'
+        || value === 'http-json'
+        || value === 'anthropic-oauth';
+}
+function validateProviderAuthType(value) {
+    return value === 'none' || value === 'bearer-env' || value === 'header-env';
+}
+function normalizeProviderWindows(value) {
+    if (!Array.isArray(value) || value.length === 0) {
+        return undefined;
+    }
+    const windows = [];
+    for (const entry of value) {
+        if (!entry || typeof entry !== 'object') {
+            continue;
+        }
+        const windowMapping = entry;
+        const key = typeof windowMapping.key === 'string'
+            ? windowMapping.key.trim()
+            : '';
+        const label = typeof windowMapping.label === 'string'
+            ? windowMapping.label.trim()
+            : '';
+        if (!key || !label) {
+            continue;
+        }
+        windows.push({
+            key,
+            label,
+            usedPercentPath: typeof windowMapping.usedPercentPath === 'string'
+                ? windowMapping.usedPercentPath.trim()
+                : undefined,
+            remainingPercentPath: typeof windowMapping.remainingPercentPath === 'string'
+                ? windowMapping.remainingPercentPath.trim()
+                : undefined,
+            resetAtPath: typeof windowMapping.resetAtPath === 'string'
+                ? windowMapping.resetAtPath.trim()
+                : undefined,
+        });
+    }
+    return windows.length > 0 ? windows : undefined;
+}
+function normalizeProviderDefinitions(value) {
+    if (!Array.isArray(value) || value.length === 0) {
+        return DEFAULT_PROVIDER_DEFINITIONS.map(cloneProviderDefinition);
+    }
+    const providers = [];
+    for (const entry of value) {
+        if (!entry || typeof entry !== 'object') {
+            continue;
+        }
+        const raw = entry;
+        const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+        const label = typeof raw.label === 'string' ? raw.label.trim() : id;
+        const kind = raw.usageSource?.kind;
+        if (!id || !label || !validateProviderKind(kind)) {
+            continue;
+        }
+        const modelMatchers = Array.isArray(raw.modelMatchers)
+            ? raw.modelMatchers.filter((matcher) => typeof matcher === 'string' && matcher.trim().length > 0)
+                .map((matcher) => matcher.trim())
+            : [];
+        const auth = raw.usageSource?.auth && validateProviderAuthType(raw.usageSource.auth.type)
+            ? {
+                type: raw.usageSource.auth.type,
+                envName: typeof raw.usageSource.auth.envName === 'string' ? raw.usageSource.auth.envName.trim() : undefined,
+                headerName: typeof raw.usageSource.auth.headerName === 'string' ? raw.usageSource.auth.headerName.trim() : undefined,
+            }
+            : undefined;
+        providers.push({
+            id,
+            label,
+            enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true,
+            modelMatchers,
+            usageSource: {
+                kind,
+                ...(typeof raw.usageSource?.endpoint === 'string' && raw.usageSource.endpoint.trim().length > 0
+                    ? { endpoint: raw.usageSource.endpoint.trim() }
+                    : {}),
+                ...(typeof raw.usageSource?.path === 'string' && raw.usageSource.path.trim().length > 0
+                    ? { path: raw.usageSource.path.trim() }
+                    : {}),
+                ...(auth ? { auth } : {}),
+                ...(raw.usageSource?.responseMapping
+                    ? {
+                        responseMapping: {
+                            ...(typeof raw.usageSource.responseMapping.planNamePath === 'string'
+                                && raw.usageSource.responseMapping.planNamePath.trim().length > 0
+                                ? { planNamePath: raw.usageSource.responseMapping.planNamePath.trim() }
+                                : {}),
+                            ...(normalizeProviderWindows(raw.usageSource.responseMapping.windows)
+                                ? { windows: normalizeProviderWindows(raw.usageSource.responseMapping.windows) }
+                                : {}),
+                        },
+                    }
+                    : {}),
+            },
+        });
+    }
+    return providers.length > 0
+        ? providers
+        : DEFAULT_PROVIDER_DEFINITIONS.map(cloneProviderDefinition);
+}
 export function mergeConfig(userConfig) {
     const migrated = migrateConfig(userConfig);
     const language = validateLanguage(migrated.language)
@@ -415,12 +575,9 @@ export function mergeConfig(userConfig) {
             : DEFAULT_CONFIG.colors.custom,
     };
     const usage = {
-        cacheTtlSeconds: typeof migrated.usage?.cacheTtlSeconds === 'number'
-            ? migrated.usage.cacheTtlSeconds
-            : DEFAULT_CONFIG.usage.cacheTtlSeconds,
-        failureCacheTtlSeconds: typeof migrated.usage?.failureCacheTtlSeconds === 'number'
-            ? migrated.usage.failureCacheTtlSeconds
-            : DEFAULT_CONFIG.usage.failureCacheTtlSeconds,
+        cacheTtlSeconds: validateDurationSeconds(migrated.usage?.cacheTtlSeconds, DEFAULT_CONFIG.usage.cacheTtlSeconds),
+        failureCacheTtlSeconds: validateDurationSeconds(migrated.usage?.failureCacheTtlSeconds, DEFAULT_CONFIG.usage.failureCacheTtlSeconds),
+        providerDefinitions: normalizeProviderDefinitions(migrated.usage?.providerDefinitions),
     };
     return { language, lineLayout, showSeparators, pathLevels, maxWidth, elementOrder, gitStatus, display, usage, colors };
 }

@@ -283,7 +283,13 @@ test("main uses MiniMax usage through the normalized resolver bridge", async () 
   const resetAt = new Date("2026-04-22T12:00:00.000Z");
 
   await main({
-    readStdin: async () => makeStdin({ rate_limits: null }),
+    readStdin: async () => makeStdin({
+      rate_limits: null,
+      model: {
+        id: undefined,
+        display_name: undefined,
+      },
+    }),
     parseTranscript: async () => makeTranscript(),
     countConfigs: async () => makeCounts(),
     loadConfig: async () => makeConfig(),
@@ -381,8 +387,8 @@ test("main uses external usage fallback when stdin rate limits are absent", asyn
 
   assert.equal(externalCalls, 1);
   assert.deepEqual(renderedContext?.usageData, {
-    providerId: "claude",
-    providerLabel: "Claude",
+    providerId: "external-fallback",
+    providerLabel: "External Fallback",
     planName: null,
     windows: [
       {

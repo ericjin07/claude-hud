@@ -35,8 +35,9 @@ function parseUpdatedAt(value: unknown): number | null {
 export function getUsageFromExternalSnapshot(
   config: HudConfig,
   now = Date.now(),
+  snapshotPathOverride?: string,
 ): UsageData | null {
-  const snapshotPath = config.display.externalUsagePath;
+  const snapshotPath = snapshotPathOverride ?? config.display.externalUsagePath;
   if (!snapshotPath) {
     return null;
   }

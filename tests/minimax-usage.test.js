@@ -1,6 +1,9 @@
 // tests/minimax-usage.test.js
 import { describe, it } from 'node:test';
 import { deepStrictEqual, strictEqual } from 'node:assert';
+import { mkdtemp, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 
 // Import from built dist files (npm test runs after npm run build)
 import { getMiniMaxUsage, isMiniMaxConfigured, parseUtilization } from '../dist/minimax-usage.js';
@@ -174,6 +177,57 @@ describe('getMiniMaxUsage', () => {
     const result = await getMiniMaxUsage(deps);
     strictEqual(result?.apiUnavailable, true);
     strictEqual(result?.apiError, 'cookie is missing, log in again');
+  });
+
+  it('respects configured success cache TTLs', async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-minimax-ttl-'));
+    let fetchCalls = 0;
+
+    const makeApiResponse = (remaining) => ({
+      data: {
+        base_resp: { status_code: 0, status_msg: 'ok' },
+        model_remains: [
+          {
+            model_name: 'MiniMax-M2.7',
+            current_interval_total_count: 600,
+            current_interval_usage_count: remaining,
+            remains_time: 7_200_000,
+          },
+        ],
+      },
+    });
+
+    try {
+      const first = await getMiniMaxUsage({
+        apiKey: () => 'fake-key',
+        fetchApi: async () => {
+          fetchCalls += 1;
+          return makeApiResponse(300);
+        },
+        homeDir: () => homeDir,
+        now: () => 0,
+        ttls: { cacheTtlMs: 1000, failureCacheTtlMs: 15000 },
+        getAnthropicModelFromSettings: () => 'MiniMax-M2.7',
+      });
+
+      const second = await getMiniMaxUsage({
+        apiKey: () => 'fake-key',
+        fetchApi: async () => {
+          fetchCalls += 1;
+          return makeApiResponse(120);
+        },
+        homeDir: () => homeDir,
+        now: () => 2000,
+        ttls: { cacheTtlMs: 1000, failureCacheTtlMs: 15000 },
+        getAnthropicModelFromSettings: () => 'MiniMax-M2.7',
+      });
+
+      strictEqual(fetchCalls, 2);
+      strictEqual(first?.utilization, 50);
+      strictEqual(second?.utilization, 20);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
   });
 });
 

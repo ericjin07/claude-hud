@@ -5,6 +5,7 @@ import * as os from 'os';
 import { getHudPluginDir, getClaudeConfigDir } from './claude-config-dir.js';
 import { createDebug } from './debug.js';
 import type { MiniMaxUsageResponse, MiniMaxUsageData } from './minimax-types.js';
+import { getConfiguredModelFromSettings } from './provider-settings.js';
 
 const debug = createDebug('minimax-usage');
 
@@ -32,16 +33,7 @@ function getCacheLockPath(homeDir: string): string {
 
 // Parse ANTHROPIC_MODEL from settings.json
 export function getAnthropicModelFromSettings(homeDir: string): string | null {
-  try {
-    const settingsPath = path.join(getClaudeConfigDir(homeDir), 'settings.json');
-    if (!fs.existsSync(settingsPath)) return null;
-    const content = fs.readFileSync(settingsPath, 'utf8');
-    const settings = JSON.parse(content);
-    const model = settings?.env?.ANTHROPIC_MODEL ?? settings?.ANTHROPIC_MODEL;
-    return typeof model === 'string' ? model : null;
-  } catch {
-    return null;
-  }
+  return getConfiguredModelFromSettings(homeDir);
 }
 
 export function isMiniMaxConfigured(model?: string | null): boolean {
@@ -55,13 +47,17 @@ export function parseUtilization(total: number, remaining: number): number {
   return Math.max(0, Math.min(100, Math.round(raw)));
 }
 
-function readCacheState(homeDir: string, now: number, failureTtlMs: number): { data: MiniMaxUsageData; isFresh: boolean } | null {
+function readCacheState(
+  homeDir: string,
+  now: number,
+  ttls: { cacheTtlMs: number; failureCacheTtlMs: number },
+): { data: MiniMaxUsageData; isFresh: boolean } | null {
   try {
     const cachePath = getCachePath(homeDir);
     if (!fs.existsSync(cachePath)) return null;
     const content = fs.readFileSync(cachePath, 'utf8');
     const cache: MiniMaxCacheFile = JSON.parse(content);
-    const ttl = cache.data.apiUnavailable ? failureTtlMs : CACHE_TTL_MS;
+    const ttl = cache.data.apiUnavailable ? ttls.failureCacheTtlMs : ttls.cacheTtlMs;
     const isFresh = now - cache.timestamp < ttl;
     // Re-hydrate resetAt from string back to Date
     if (cache.data.resetAt && typeof cache.data.resetAt === 'string') {
@@ -188,7 +184,7 @@ export async function getMiniMaxUsage(overrides: Partial<MiniMaxUsageDeps> = {})
   }
 
   // Check cache
-  const cached = readCacheState(homeDir, now, deps.ttls.failureCacheTtlMs);
+  const cached = readCacheState(homeDir, now, deps.ttls);
   if (cached?.isFresh) {
     return cached.data;
   }
@@ -203,7 +199,7 @@ export async function getMiniMaxUsage(overrides: Partial<MiniMaxUsageDeps> = {})
 
   try {
     // Re-check cache after acquiring lock
-    const recheck = readCacheState(homeDir, now, deps.ttls.failureCacheTtlMs);
+    const recheck = readCacheState(homeDir, now, deps.ttls);
     if (recheck?.isFresh) {
       return recheck.data;
     }
