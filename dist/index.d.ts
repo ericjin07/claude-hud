@@ -10,6 +10,7 @@ import { getMemoryUsage } from "./memory.js";
 import { getMiniMaxUsage } from "./minimax-usage.js";
 import { applyContextWindowFallback } from "./context-cache.js";
 import { getUsageFromExternalSnapshot } from "./external-usage.js";
+import type { RenderContext, StdinData, NormalizedUsageData } from "./types.js";
 export { getUsageFromExternalSnapshot } from "./external-usage.js";
 export type MainDeps = {
     readStdin: typeof readStdin;
@@ -29,6 +30,15 @@ export type MainDeps = {
     now: () => number;
     log: (...args: unknown[]) => void;
 };
+export type ResolveUsageContextDeps = {
+    stdin: StdinData;
+    config: RenderContext["config"];
+    getMiniMaxUsage: MainDeps["getMiniMaxUsage"];
+    getUsageFromStdin: MainDeps["getUsageFromStdin"];
+    getUsageFromExternalSnapshot: MainDeps["getUsageFromExternalSnapshot"];
+    now: () => number;
+};
+export declare function resolveUsageContext(deps: ResolveUsageContextDeps): Promise<NormalizedUsageData | null>;
 export declare function main(overrides?: Partial<MainDeps>): Promise<void>;
 export declare function formatSessionDuration(sessionStart?: Date, now?: () => number): string;
 //# sourceMappingURL=index.d.ts.map

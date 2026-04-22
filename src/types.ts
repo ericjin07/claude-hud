@@ -78,6 +78,22 @@ export interface UsageData {
   apiError?: string;
 }
 
+export interface UsageWindow {
+  key: string;
+  label: string;
+  usedPercent: number | null;
+  resetAt: Date | null;
+}
+
+export interface NormalizedUsageData {
+  providerId: string;
+  providerLabel: string;
+  planName: string | null;
+  windows: UsageWindow[];
+  apiUnavailable?: boolean;
+  apiError?: string;
+}
+
 export interface ExternalUsageSnapshot {
   five_hour?: {
     used_percentage?: number | null;

@@ -264,6 +264,49 @@ test("main includes usageData from stdin when available", async () => {
   });
 });
 
+test("main uses MiniMax usage through the normalized resolver bridge", async () => {
+  let renderedContext;
+  let stdinCalls = 0;
+  let externalCalls = 0;
+  const resetAt = new Date("2026-04-22T12:00:00.000Z");
+
+  await main({
+    readStdin: async () => makeStdin({ rate_limits: null }),
+    parseTranscript: async () => makeTranscript(),
+    countConfigs: async () => makeCounts(),
+    loadConfig: async () => makeConfig(),
+    getGitStatus: async () => null,
+    getMiniMaxUsage: async () => ({
+      planName: "MiniMax",
+      utilization: 45,
+      resetAt,
+      apiUnavailable: true,
+      apiError: "rate-limited",
+    }),
+    getUsageFromStdin: () => {
+      stdinCalls += 1;
+      return null;
+    },
+    getUsageFromExternalSnapshot: () => {
+      externalCalls += 1;
+      return null;
+    },
+    render: (ctx) => {
+      renderedContext = ctx;
+    },
+  });
+
+  assert.equal(stdinCalls, 0);
+  assert.equal(externalCalls, 0);
+  assert.deepEqual(renderedContext?.usageData, {
+    planName: "MiniMax",
+    utilization: 45,
+    resetAt,
+    apiUnavailable: true,
+    apiError: "rate-limited",
+  });
+});
+
 test("main leaves usageData null when stdin rate limits are absent and external fallback is unavailable", async () => {
   let renderedContext;
   let externalCalls = 0;

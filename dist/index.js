@@ -15,6 +15,109 @@ import { setLanguage, t } from "./i18n/index.js";
 export { getUsageFromExternalSnapshot } from "./external-usage.js";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
+function normalizeUsageData(data) {
+    const normalized = {
+        providerId: "claude",
+        providerLabel: "Claude",
+        planName: data.planName,
+        windows: [
+            {
+                key: "5h",
+                label: "5h",
+                usedPercent: data.fiveHour,
+                resetAt: data.fiveHourResetAt,
+            },
+            {
+                key: "7d",
+                label: "7d",
+                usedPercent: data.sevenDay,
+                resetAt: data.sevenDayResetAt,
+            },
+        ],
+    };
+    if (data.apiUnavailable !== undefined) {
+        normalized.apiUnavailable = data.apiUnavailable;
+    }
+    if (data.apiError !== undefined) {
+        normalized.apiError = data.apiError;
+    }
+    return normalized;
+}
+function toLegacyUsageData(data) {
+    if (data.providerId === "minimax") {
+        const primaryWindow = data.windows.find((window) => window.key === "5h") ?? data.windows[0];
+        if (!primaryWindow) {
+            return null;
+        }
+        const legacyMiniMaxUsage = {
+            planName: "MiniMax",
+            utilization: Math.max(0, 100 - (primaryWindow.usedPercent ?? 0)),
+            resetAt: primaryWindow.resetAt,
+        };
+        if (data.apiUnavailable !== undefined) {
+            legacyMiniMaxUsage.apiUnavailable = data.apiUnavailable;
+        }
+        if (data.apiError !== undefined) {
+            legacyMiniMaxUsage.apiError = data.apiError;
+        }
+        return legacyMiniMaxUsage;
+    }
+    const fiveHourWindow = data.windows.find((window) => window.key === "5h") ?? null;
+    const sevenDayWindow = data.windows.find((window) => window.key === "7d") ?? null;
+    const legacyUsage = {
+        planName: data.planName,
+        fiveHour: fiveHourWindow?.usedPercent ?? null,
+        sevenDay: sevenDayWindow?.usedPercent ?? null,
+        fiveHourResetAt: fiveHourWindow?.resetAt ?? null,
+        sevenDayResetAt: sevenDayWindow?.resetAt ?? null,
+    };
+    if (data.apiUnavailable !== undefined) {
+        legacyUsage.apiUnavailable = data.apiUnavailable;
+    }
+    if (data.apiError !== undefined) {
+        legacyUsage.apiError = data.apiError;
+    }
+    return legacyUsage;
+}
+export async function resolveUsageContext(deps) {
+    const miniMaxUsage = await deps.getMiniMaxUsage({
+        ttls: {
+            cacheTtlMs: deps.config.usage.cacheTtlSeconds * 1000,
+            failureCacheTtlMs: deps.config.usage.failureCacheTtlSeconds * 1000,
+        },
+    });
+    if (miniMaxUsage) {
+        const normalized = {
+            providerId: "minimax",
+            providerLabel: "MiniMax",
+            planName: miniMaxUsage.planName,
+            windows: [
+                {
+                    key: "5h",
+                    label: "5h",
+                    usedPercent: Math.max(0, 100 - miniMaxUsage.utilization),
+                    resetAt: miniMaxUsage.resetAt,
+                },
+            ],
+        };
+        if (miniMaxUsage.apiUnavailable !== undefined) {
+            normalized.apiUnavailable = miniMaxUsage.apiUnavailable;
+        }
+        if (miniMaxUsage.apiError !== undefined) {
+            normalized.apiError = miniMaxUsage.apiError;
+        }
+        return normalized;
+    }
+    const stdinUsage = deps.getUsageFromStdin(deps.stdin);
+    if (stdinUsage) {
+        return normalizeUsageData(stdinUsage);
+    }
+    const externalUsage = deps.getUsageFromExternalSnapshot(deps.config, deps.now());
+    if (externalUsage) {
+        return normalizeUsageData(externalUsage);
+    }
+    return null;
+}
 export async function main(overrides = {}) {
     const deps = {
         readStdin,
@@ -59,15 +162,16 @@ export async function main(overrides = {}) {
             : null;
         let usageData = null;
         if (config.display.showUsage !== false) {
-            const miniMaxUsage = await deps.getMiniMaxUsage({
-                ttls: {
-                    cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
-                    failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
-                },
+            const normalizedUsage = await resolveUsageContext({
+                stdin,
+                config,
+                getMiniMaxUsage: deps.getMiniMaxUsage,
+                getUsageFromStdin: deps.getUsageFromStdin,
+                getUsageFromExternalSnapshot: deps.getUsageFromExternalSnapshot,
+                now: deps.now,
             });
-            usageData = miniMaxUsage ?? deps.getUsageFromStdin(stdin);
-            if (!usageData) {
-                usageData = deps.getUsageFromExternalSnapshot(config, deps.now());
+            if (normalizedUsage) {
+                usageData = toLegacyUsageData(normalizedUsage);
             }
         }
         const extraCmd = deps.parseExtraCmdArg();

@@ -8,11 +8,12 @@ import { parseExtraCmdArg, runExtraCmd } from "./extra-cmd.js";
 import { getClaudeCodeVersion } from "./version.js";
 import { getMemoryUsage } from "./memory.js";
 import { getMiniMaxUsage } from "./minimax-usage.js";
+import type { MiniMaxUsageData } from "./minimax-types.js";
 import { resolveEffortLevel } from "./effort.js";
 import { applyContextWindowFallback } from "./context-cache.js";
 import { getUsageFromExternalSnapshot } from "./external-usage.js";
 import { setLanguage, t } from "./i18n/index.js";
-import type { RenderContext } from "./types.js";
+import type { RenderContext, StdinData, UsageData, NormalizedUsageData } from "./types.js";
 
 export { getUsageFromExternalSnapshot } from "./external-usage.js";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,141 @@ export type MainDeps = {
   now: () => number;
   log: (...args: unknown[]) => void;
 };
+
+export type ResolveUsageContextDeps = {
+  stdin: StdinData;
+  config: RenderContext["config"];
+  getMiniMaxUsage: MainDeps["getMiniMaxUsage"];
+  getUsageFromStdin: MainDeps["getUsageFromStdin"];
+  getUsageFromExternalSnapshot: MainDeps["getUsageFromExternalSnapshot"];
+  now: () => number;
+};
+
+function normalizeUsageData(data: UsageData): NormalizedUsageData {
+  const normalized: NormalizedUsageData = {
+    providerId: "claude",
+    providerLabel: "Claude",
+    planName: data.planName,
+    windows: [
+      {
+        key: "5h",
+        label: "5h",
+        usedPercent: data.fiveHour,
+        resetAt: data.fiveHourResetAt,
+      },
+      {
+        key: "7d",
+        label: "7d",
+        usedPercent: data.sevenDay,
+        resetAt: data.sevenDayResetAt,
+      },
+    ],
+  };
+
+  if (data.apiUnavailable !== undefined) {
+    normalized.apiUnavailable = data.apiUnavailable;
+  }
+
+  if (data.apiError !== undefined) {
+    normalized.apiError = data.apiError;
+  }
+
+  return normalized;
+}
+
+function toLegacyUsageData(data: NormalizedUsageData): RenderContext["usageData"] {
+  if (data.providerId === "minimax") {
+    const primaryWindow = data.windows.find((window) => window.key === "5h") ?? data.windows[0];
+    if (!primaryWindow) {
+      return null;
+    }
+
+    const legacyMiniMaxUsage: MiniMaxUsageData = {
+      planName: "MiniMax" as const,
+      utilization: Math.max(0, 100 - (primaryWindow.usedPercent ?? 0)),
+      resetAt: primaryWindow.resetAt,
+    };
+
+    if (data.apiUnavailable !== undefined) {
+      legacyMiniMaxUsage.apiUnavailable = data.apiUnavailable;
+    }
+
+    if (data.apiError !== undefined) {
+      legacyMiniMaxUsage.apiError = data.apiError;
+    }
+
+    return legacyMiniMaxUsage;
+  }
+
+  const fiveHourWindow = data.windows.find((window) => window.key === "5h") ?? null;
+  const sevenDayWindow = data.windows.find((window) => window.key === "7d") ?? null;
+  const legacyUsage: UsageData = {
+    planName: data.planName,
+    fiveHour: fiveHourWindow?.usedPercent ?? null,
+    sevenDay: sevenDayWindow?.usedPercent ?? null,
+    fiveHourResetAt: fiveHourWindow?.resetAt ?? null,
+    sevenDayResetAt: sevenDayWindow?.resetAt ?? null,
+  };
+
+  if (data.apiUnavailable !== undefined) {
+    legacyUsage.apiUnavailable = data.apiUnavailable;
+  }
+
+  if (data.apiError !== undefined) {
+    legacyUsage.apiError = data.apiError;
+  }
+
+  return legacyUsage;
+}
+
+export async function resolveUsageContext(
+  deps: ResolveUsageContextDeps,
+): Promise<NormalizedUsageData | null> {
+  const miniMaxUsage = await deps.getMiniMaxUsage({
+    ttls: {
+      cacheTtlMs: deps.config.usage.cacheTtlSeconds * 1000,
+      failureCacheTtlMs: deps.config.usage.failureCacheTtlSeconds * 1000,
+    },
+  });
+
+  if (miniMaxUsage) {
+    const normalized: NormalizedUsageData = {
+      providerId: "minimax",
+      providerLabel: "MiniMax",
+      planName: miniMaxUsage.planName,
+      windows: [
+        {
+          key: "5h",
+          label: "5h",
+          usedPercent: Math.max(0, 100 - miniMaxUsage.utilization),
+          resetAt: miniMaxUsage.resetAt,
+        },
+      ],
+    };
+
+    if (miniMaxUsage.apiUnavailable !== undefined) {
+      normalized.apiUnavailable = miniMaxUsage.apiUnavailable;
+    }
+
+    if (miniMaxUsage.apiError !== undefined) {
+      normalized.apiError = miniMaxUsage.apiError;
+    }
+
+    return normalized;
+  }
+
+  const stdinUsage = deps.getUsageFromStdin(deps.stdin);
+  if (stdinUsage) {
+    return normalizeUsageData(stdinUsage);
+  }
+
+  const externalUsage = deps.getUsageFromExternalSnapshot(deps.config, deps.now());
+  if (externalUsage) {
+    return normalizeUsageData(externalUsage);
+  }
+
+  return null;
+}
 
 export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
   const deps: MainDeps = {
@@ -89,16 +225,17 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
 
     let usageData: RenderContext["usageData"] = null;
     if (config.display.showUsage !== false) {
-      const miniMaxUsage = await deps.getMiniMaxUsage({
-        ttls: {
-          cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
-          failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
-        },
+      const normalizedUsage = await resolveUsageContext({
+        stdin,
+        config,
+        getMiniMaxUsage: deps.getMiniMaxUsage,
+        getUsageFromStdin: deps.getUsageFromStdin,
+        getUsageFromExternalSnapshot: deps.getUsageFromExternalSnapshot,
+        now: deps.now,
       });
 
-      usageData = miniMaxUsage ?? deps.getUsageFromStdin(stdin);
-      if (!usageData) {
-        usageData = deps.getUsageFromExternalSnapshot(config, deps.now());
+      if (normalizedUsage) {
+        usageData = toLegacyUsageData(normalizedUsage);
       }
     }
 
