@@ -267,6 +267,7 @@ test('getUsageFromStdin parses official Claude Code rate_limits payload', () => 
   });
 
   assert.deepEqual(usage, {
+    planName: null,
     fiveHour: 8,
     sevenDay: 100,
     fiveHourResetAt: new Date(1710000000 * 1000),
@@ -289,6 +290,7 @@ test('getUsageFromStdin rejects invalid fields and keeps only official usage dat
   });
 
   assert.deepEqual(usage, {
+    planName: null,
     fiveHour: 0,
     sevenDay: null,
     fiveHourResetAt: null,

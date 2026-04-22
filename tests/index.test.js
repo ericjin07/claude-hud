@@ -256,6 +256,7 @@ test("main includes usageData from stdin when available", async () => {
 
   assert.equal(externalCalls, 0);
   assert.deepEqual(renderedContext?.usageData, {
+    planName: null,
     fiveHour: 50,
     sevenDay: 25,
     fiveHourResetAt: new Date(1710000000 * 1000),
@@ -290,6 +291,7 @@ test("main uses external usage fallback when stdin rate limits are absent", asyn
   let renderedContext;
   let externalCalls = 0;
   const externalUsage = {
+    planName: null,
     fiveHour: 42,
     sevenDay: 85,
     fiveHourResetAt: new Date("2026-04-20T15:00:00.000Z"),
@@ -349,6 +351,7 @@ test("main prefers stdin usage over external usage fallback", async () => {
 
   assert.equal(externalCalls, 0);
   assert.deepEqual(renderedContext?.usageData, {
+    planName: null,
     fiveHour: 22,
     sevenDay: 55,
     fiveHourResetAt: new Date(1710000000 * 1000),

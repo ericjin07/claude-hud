@@ -44,6 +44,7 @@ test('getUsageFromExternalSnapshot parses a fresh snapshot', async () => {
   try {
     const usage = getUsageFromExternalSnapshot(makeConfig(filePath), updatedAt + 60_000);
     assert.deepEqual(usage, {
+      planName: null,
       fiveHour: 42,
       sevenDay: 85,
       fiveHourResetAt: new Date(resetAt),
