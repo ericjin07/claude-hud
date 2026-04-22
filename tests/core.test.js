@@ -2,11 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readdir, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _setCreateReadStreamForTests, parseTranscript } from '../dist/transcript.js';
 import { countConfigs } from '../dist/config-reader.js';
-import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getUsageFromStdin, isBedrockModelId } from '../dist/stdin.js';
+import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getUsageFromStdin, isBedrockModelId, stripContextSuffix, formatModelName } from '../dist/stdin.js';
+import { estimateSessionCost, resolveSessionCost, formatUsd } from '../dist/cost.js';
 import * as fs from 'node:fs';
 
 function restoreEnvVar(name, value) {
@@ -190,8 +192,38 @@ test('getBufferedPercent falls back when native is null', () => {
 });
 
 test('native percentage handles zero correctly', () => {
+  // used_percentage: 0 with no tokens → still 0
   assert.equal(getContextPercent({ context_window: { used_percentage: 0 } }), 0);
   assert.equal(getBufferedPercent({ context_window: { used_percentage: 0 } }), 0);
+});
+
+test('getContextPercent falls through to token-based calculation when used_percentage is 0 but tokens exist', () => {
+  // On a fresh session Claude Code emits used_percentage=0 before the first API
+  // response, while current_usage already contains the initial-context tokens
+  // (system prompt, tools, memory files).  The HUD should reflect them.
+  // 18200 / 200000 = 9.1% → rounds to 9%
+  const percent = getContextPercent({
+    context_window: {
+      context_window_size: 200000,
+      current_usage: { input_tokens: 18200 },
+      used_percentage: 0,
+    },
+  });
+  assert.equal(percent, 9);
+});
+
+test('getBufferedPercent falls through to token-based calculation when used_percentage is 0 but tokens exist', () => {
+  // Same fresh-session scenario for the buffered variant.
+  // 18200 / 200000 = 9.1% raw; scale = (0.091 - 0.05) / (0.50 - 0.05) ≈ 0.091
+  // buffer = 200000 * 0.165 * 0.091 ≈ 3003; (18200 + 3003) / 200000 ≈ 10.6% → 11%
+  const percent = getBufferedPercent({
+    context_window: {
+      context_window_size: 200000,
+      current_usage: { input_tokens: 18200 },
+      used_percentage: 0,
+    },
+  });
+  assert.ok(percent > 9, `expected buffered percent > 9, got ${percent}`);
 });
 
 test('native percentage clamps negative values to 0', () => {
@@ -235,6 +267,7 @@ test('getUsageFromStdin parses official Claude Code rate_limits payload', () => 
   });
 
   assert.deepEqual(usage, {
+    planName: null,
     fiveHour: 8,
     sevenDay: 100,
     fiveHourResetAt: new Date(1710000000 * 1000),
@@ -257,6 +290,7 @@ test('getUsageFromStdin rejects invalid fields and keeps only official usage dat
   });
 
   assert.deepEqual(usage, {
+    planName: null,
     fiveHour: 0,
     sevenDay: null,
     fiveHourResetAt: null,
@@ -275,13 +309,166 @@ test('getModelName precedence: trimmed display name, then normalized bedrock lab
   assert.equal(getModelName({}), 'Unknown');
 });
 
+test('stripContextSuffix removes parenthetical context-window info', () => {
+  assert.equal(stripContextSuffix('Opus 4.6 (1M context)'), 'Opus 4.6');
+  assert.equal(stripContextSuffix('Sonnet 4 (200k context)'), 'Sonnet 4');
+  assert.equal(stripContextSuffix('Claude 3.5 Haiku (200k context)'), 'Claude 3.5 Haiku');
+  assert.equal(stripContextSuffix('Model (with 1M context)'), 'Model');
+  assert.equal(stripContextSuffix('Model (extended context window)'), 'Model');
+  // Case-insensitive
+  assert.equal(stripContextSuffix('Opus (1M CONTEXT)'), 'Opus');
+  // Preserves non-context parentheticals
+  assert.equal(stripContextSuffix('Model (beta)'), 'Model (beta)');
+  assert.equal(stripContextSuffix('Model (preview)'), 'Model (preview)');
+  // No-op when no suffix present
+  assert.equal(stripContextSuffix('Sonnet 4.6'), 'Sonnet 4.6');
+  assert.equal(stripContextSuffix(''), '');
+});
+
+test('formatModelName full mode returns name unchanged', () => {
+  assert.equal(formatModelName('Opus 4.6 (1M context)', 'full'), 'Opus 4.6 (1M context)');
+  assert.equal(formatModelName('Claude Sonnet 3.5', 'full'), 'Claude Sonnet 3.5');
+  // undefined format defaults to full (backward-compatible)
+  assert.equal(formatModelName('Opus 4.6 (1M context)'), 'Opus 4.6 (1M context)');
+});
+
+test('formatModelName compact mode strips context suffix only', () => {
+  assert.equal(formatModelName('Opus 4.6 (1M context)', 'compact'), 'Opus 4.6');
+  assert.equal(formatModelName('Claude Sonnet 3.5 (200k context)', 'compact'), 'Claude Sonnet 3.5');
+  assert.equal(formatModelName('Claude Haiku (with 1M context)', 'compact'), 'Claude Haiku');
+  // Preserves "Claude " prefix in compact mode
+  assert.equal(formatModelName('Claude Opus 4.5', 'compact'), 'Claude Opus 4.5');
+  // Preserves non-context parentheticals
+  assert.equal(formatModelName('Model (beta)', 'compact'), 'Model (beta)');
+});
+
+test('formatModelName short mode strips context suffix and Claude prefix', () => {
+  assert.equal(formatModelName('Claude Opus 4.5 (1M context)', 'short'), 'Opus 4.5');
+  assert.equal(formatModelName('Claude Sonnet 3.5 (200k context)', 'short'), 'Sonnet 3.5');
+  assert.equal(formatModelName('Claude Haiku', 'short'), 'Haiku');
+  // Already short names are unchanged
+  assert.equal(formatModelName('Opus 4.6', 'short'), 'Opus 4.6');
+  assert.equal(formatModelName('Sonnet', 'short'), 'Sonnet');
+  // Case-insensitive Claude prefix removal
+  assert.equal(formatModelName('claude Opus 4.5', 'short'), 'Opus 4.5');
+});
+
+test('formatModelName override replaces model name entirely', () => {
+  // Override takes precedence over format
+  assert.equal(formatModelName('Claude Opus 4.5', 'full', "zane's intelligent opus"), "zane's intelligent opus");
+  assert.equal(formatModelName('Claude Opus 4.5', 'compact', 'My Model'), 'My Model');
+  assert.equal(formatModelName('Claude Opus 4.5', 'short', 'Custom'), 'Custom');
+  assert.equal(formatModelName('Claude Opus 4.5', undefined, 'Override'), 'Override');
+  // Empty override is treated as unset (falls through to format)
+  assert.equal(formatModelName('Claude Opus 4.5 (1M context)', 'compact', ''), 'Claude Opus 4.5');
+  assert.equal(formatModelName('Opus 4.6', 'full', ''), 'Opus 4.6');
+});
+
 test('bedrock model detection recognizes bedrock ids', () => {
   assert.ok(isBedrockModelId('anthropic.claude-3-5-sonnet-20240620-v1:0'));
   assert.ok(isBedrockModelId('eu.anthropic.claude-opus-4-5-20251101-v1:0'));
   assert.equal(isBedrockModelId('claude-3-5-sonnet-20241022'), false);
-  assert.equal(getProviderLabel({ model: { id: 'anthropic.claude-3-5-sonnet-20240620-v1:0' } }), 'Bedrock');
+  process.env.CLAUDE_CODE_USE_BEDROCK = '1';
+  try {
+    assert.equal(getProviderLabel({ model: { id: 'anthropic.claude-3-5-sonnet-20240620-v1:0' } }), 'Bedrock');
+  } finally {
+    delete process.env.CLAUDE_CODE_USE_BEDROCK;
+  }
   assert.equal(getProviderLabel({ model: { id: 'claude-3-5-sonnet-20241022' } }), null);
 });
+
+test('resolveSessionCost prefers native stdin cost when available', () => {
+  const cost = resolveSessionCost(
+    {
+      model: { display_name: 'Claude Sonnet 4.5' },
+      cost: { total_cost_usd: 1.23 },
+    },
+    {
+      inputTokens: 100000,
+      cacheCreationTokens: 10000,
+      cacheReadTokens: 20000,
+      outputTokens: 50000,
+    },
+  );
+
+  assert.deepEqual(cost, {
+    totalUsd: 1.23,
+    source: 'native',
+  });
+});
+
+test('resolveSessionCost falls back to transcript estimation when native cost is absent', () => {
+  const cost = resolveSessionCost(
+    { model: { display_name: 'Claude Opus 4.5' } },
+    {
+      inputTokens: 100000,
+      cacheCreationTokens: 10000,
+      cacheReadTokens: 20000,
+      outputTokens: 50000,
+    },
+  );
+
+  assert.ok(cost, 'expected fallback estimate');
+  assert.equal(cost?.source, 'estimate');
+  assert.equal(formatUsd(cost?.totalUsd ?? 0), '$5.47');
+});
+
+test('resolveSessionCost ignores native cost for provider-routed sessions', () => {
+  process.env.CLAUDE_CODE_USE_BEDROCK = '1';
+  try {
+    const cost = resolveSessionCost(
+      {
+        model: { id: 'anthropic.claude-sonnet-4-20250514-v1:0' },
+        cost: { total_cost_usd: 0 },
+      },
+      {
+        inputTokens: 100000,
+        cacheCreationTokens: 10000,
+        cacheReadTokens: 20000,
+        outputTokens: 50000,
+      },
+    );
+
+    assert.equal(cost, null);
+  } finally {
+    delete process.env.CLAUDE_CODE_USE_BEDROCK;
+  }
+});
+
+test('resolveSessionCost falls back when native cost is invalid', () => {
+  const cost = resolveSessionCost(
+    {
+      model: { display_name: 'Claude Sonnet 4.5' },
+      cost: { total_cost_usd: Number.NaN },
+    },
+    {
+      inputTokens: 100000,
+      cacheCreationTokens: 10000,
+      cacheReadTokens: 20000,
+      outputTokens: 50000,
+    },
+  );
+
+  assert.ok(cost, 'expected fallback estimate');
+  assert.equal(cost?.source, 'estimate');
+  assert.equal(formatUsd(cost?.totalUsd ?? 0), '$1.09');
+});
+
+test('estimateSessionCost still calculates transcript-based Anthropic pricing', () => {
+  const estimate = estimateSessionCost(
+    { model: { display_name: 'Claude Sonnet 4.5' } },
+    {
+      inputTokens: 100000,
+      cacheCreationTokens: 10000,
+      cacheReadTokens: 20000,
+      outputTokens: 50000,
+    },
+  );
+
+  assert.ok(estimate, 'expected transcript estimate');
+  assert.equal(formatUsd(estimate.totalUsd), '$1.09');
+});
+
 
 test('parseTranscript aggregates tools, agents, and todos', async () => {
   const fixturePath = fileURLToPath(new URL('./fixtures/transcript-basic.jsonl', import.meta.url));
@@ -298,6 +485,181 @@ test('parseTranscript aggregates tools, agents, and todos', async () => {
   assert.equal(result.todos[2].status, 'completed');
   assert.equal(result.todos[3].status, 'in_progress');
   assert.equal(result.sessionStart?.toISOString(), '2024-01-01T00:00:00.000Z');
+});
+
+test('parseTranscript accumulates session token usage from assistant messages', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'claude-hud-'));
+  const filePath = path.join(dir, 'session-tokens.jsonl');
+  const lines = [
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        usage: {
+          input_tokens: 1200,
+          output_tokens: 300,
+          cache_creation_input_tokens: 9000,
+          cache_read_input_tokens: 1500,
+        },
+      },
+    }),
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        usage: {
+          input_tokens: 800,
+          output_tokens: 200,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 500,
+        },
+      },
+    }),
+  ];
+
+  await writeFile(filePath, lines.join('\n'), 'utf8');
+
+  try {
+    const result = await parseTranscript(filePath);
+    assert.deepEqual(result.sessionTokens, {
+      inputTokens: 2000,
+      outputTokens: 500,
+      cacheCreationTokens: 9000,
+      cacheReadTokens: 2000,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseTranscript captures the last assistant response timestamp', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'claude-hud-'));
+  const filePath = path.join(dir, 'assistant-timestamp.jsonl');
+  const lines = [
+    JSON.stringify({ type: 'assistant', timestamp: '2024-01-01T00:00:05.000Z' }),
+    JSON.stringify({ type: 'user', timestamp: '2024-01-01T00:00:06.000Z' }),
+    JSON.stringify({ type: 'assistant', timestamp: '2024-01-01T00:00:10.000Z' }),
+    JSON.stringify({ type: 'assistant', timestamp: 'not-a-date' }),
+  ];
+
+  await writeFile(filePath, lines.join('\n'), 'utf8');
+
+  try {
+    const result = await parseTranscript(filePath);
+    assert.equal(result.lastAssistantResponseAt?.toISOString(), '2024-01-01T00:00:10.000Z');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseTranscript ignores malformed session token values', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'claude-hud-'));
+  const filePath = path.join(dir, 'session-tokens-malformed.jsonl');
+  const lines = [
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        usage: {
+          input_tokens: '1200',
+          output_tokens: -50,
+          cache_creation_input_tokens: 12.9,
+          cache_read_input_tokens: null,
+        },
+      },
+    }),
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        usage: {
+          input_tokens: 5,
+          output_tokens: 2,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 1,
+        },
+      },
+    }),
+  ];
+
+  await writeFile(filePath, lines.join('\n'), 'utf8');
+
+  try {
+    const result = await parseTranscript(filePath);
+    assert.deepEqual(result.sessionTokens, {
+      inputTokens: 5,
+      outputTokens: 2,
+      cacheCreationTokens: 12,
+      cacheReadTokens: 1,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('TaskCreate taskId is preserved across TodoWrite and usable by TaskUpdate', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'claude-hud-'));
+  const filePath = path.join(dir, 'taskid-preserve.jsonl');
+  const lines = [
+    JSON.stringify({
+      timestamp: '2024-01-01T00:00:00.000Z',
+      message: { content: [{ type: 'tool_use', id: 'tc-1', name: 'TaskCreate', input: { taskId: 'alpha', subject: 'Build feature' } }] },
+    }),
+    JSON.stringify({
+      timestamp: '2024-01-01T00:00:01.000Z',
+      message: { content: [{ type: 'tool_use', id: 'tw-1', name: 'TodoWrite', input: { todos: [
+        { content: 'Build feature', status: 'in_progress' },
+        { content: 'Write tests', status: 'pending' },
+      ] } }] },
+    }),
+    JSON.stringify({
+      timestamp: '2024-01-01T00:00:02.000Z',
+      message: { content: [{ type: 'tool_use', id: 'tu-1', name: 'TaskUpdate', input: { taskId: 'alpha', status: 'completed' } }] },
+    }),
+  ];
+
+  await writeFile(filePath, lines.join('\n'), 'utf8');
+
+  try {
+    const result = await parseTranscript(filePath);
+    assert.equal(result.todos.length, 2);
+    assert.equal(result.todos[0].content, 'Build feature');
+    assert.equal(result.todos[0].status, 'completed', 'TaskUpdate via preserved taskId should mark todo completed');
+    assert.equal(result.todos[1].content, 'Write tests');
+    assert.equal(result.todos[1].status, 'pending');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('TodoWrite without prior TaskCreate works as before (no regression)', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'claude-hud-'));
+  const filePath = path.join(dir, 'todowrite-only.jsonl');
+  const lines = [
+    JSON.stringify({
+      timestamp: '2024-01-01T00:00:00.000Z',
+      message: { content: [{ type: 'tool_use', id: 'tw-1', name: 'TodoWrite', input: { todos: [
+        { content: 'Task A', status: 'completed' },
+        { content: 'Task B', status: 'in_progress' },
+      ] } }] },
+    }),
+    JSON.stringify({
+      timestamp: '2024-01-01T00:00:01.000Z',
+      message: { content: [{ type: 'tool_use', id: 'tw-2', name: 'TodoWrite', input: { todos: [
+        { content: 'Task B', status: 'completed' },
+        { content: 'Task C', status: 'pending' },
+      ] } }] },
+    }),
+  ];
+
+  await writeFile(filePath, lines.join('\n'), 'utf8');
+
+  try {
+    const result = await parseTranscript(filePath);
+    assert.equal(result.todos.length, 2);
+    assert.equal(result.todos[0].content, 'Task B');
+    assert.equal(result.todos[0].status, 'completed');
+    assert.equal(result.todos[1].content, 'Task C');
+    assert.equal(result.todos[1].status, 'pending');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('parseTranscript prefers custom title over slug for session name', async () => {
@@ -441,7 +803,43 @@ test('parseTranscript handles edge-case lines and error statuses', async () => {
     const errorTool = result.tools.find((tool) => tool.id === 'tool-error');
     assert.equal(errorTool?.status, 'error');
     assert.equal(errorTool?.target, '/tmp/fallback.txt');
-    assert.equal(result.agents[0]?.type, 'unknown');
+    assert.equal(result.agents[0]?.type, 'agent');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseTranscript detects agents recorded with the Agent tool name', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'claude-hud-'));
+  const filePath = path.join(dir, 'agent-tool-name.jsonl');
+  const lines = [
+    JSON.stringify({
+      timestamp: '2024-01-01T00:00:00.000Z',
+      message: {
+        content: [
+          { type: 'tool_use', id: 'agent-1', name: 'Agent', input: { subagent_type: 'Explore', model: 'haiku' } },
+        ],
+      },
+    }),
+    JSON.stringify({
+      timestamp: '2024-01-01T00:00:01.000Z',
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: 'agent-1', is_error: false },
+        ],
+      },
+    }),
+  ];
+
+  await writeFile(filePath, lines.join('\n'), 'utf8');
+
+  try {
+    const result = await parseTranscript(filePath);
+    assert.equal(result.agents.length, 1);
+    assert.equal(result.agents[0]?.id, 'agent-1');
+    assert.equal(result.agents[0]?.type, 'Explore');
+    assert.equal(result.agents[0]?.model, 'haiku');
+    assert.equal(result.agents[0]?.status, 'completed');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -603,6 +1001,52 @@ test('parseTranscript falls back to a fresh parse when the transcript cache is c
   }
 });
 
+test('parseTranscript invalidates transcript cache entries from older cache versions', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'claude-hud-transcript-cache-'));
+  const configDir = path.join(dir, '.claude-test');
+  const transcriptPath = path.join(dir, 'cache-version-upgrade.jsonl');
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const line = `${JSON.stringify({
+    type: 'assistant',
+    timestamp: '2024-01-01T00:00:00.000Z',
+    message: { content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: '/tmp/fresh.txt' } }] },
+  })}\n`;
+
+  process.env.CLAUDE_CONFIG_DIR = configDir;
+  await writeFile(transcriptPath, line, 'utf8');
+  fs.utimesSync(transcriptPath, 1710000200, 1710000200);
+
+  try {
+    const stat = fs.statSync(transcriptPath);
+    const cachePath = path.join(
+      configDir,
+      'plugins',
+      'claude-hud',
+      'transcript-cache',
+      `${createHash('sha256').update(path.resolve(transcriptPath)).digest('hex')}.json`
+    );
+    await mkdir(path.dirname(cachePath), { recursive: true });
+    await writeFile(cachePath, JSON.stringify({
+      transcriptPath: path.resolve(transcriptPath),
+      transcriptState: { mtimeMs: stat.mtimeMs, size: stat.size },
+      data: {
+        tools: [],
+        agents: [],
+        todos: [],
+        sessionName: 'stale-cache',
+      },
+    }), 'utf8');
+
+    const result = await parseTranscript(transcriptPath);
+    assert.equal(result.sessionName, undefined);
+    assert.equal(result.tools.length, 1);
+    assert.equal(result.lastAssistantResponseAt?.toISOString(), '2024-01-01T00:00:00.000Z');
+  } finally {
+    restoreEnvVar('CLAUDE_CONFIG_DIR', originalConfigDir);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('countConfigs honors project and global config locations', async () => {
   const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-home-'));
   const projectDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-project-'));
@@ -642,6 +1086,41 @@ test('countConfigs honors project and global config locations', async () => {
     assert.equal(counts.hooksCount, 2);
   } finally {
     process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs returns outputStyle with project local precedence', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-home-'));
+  const projectDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-project-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await mkdir(path.join(projectDir, '.claude'), { recursive: true });
+
+    await writeFile(
+      path.join(homeDir, '.claude', 'settings.local.json'),
+      JSON.stringify({ outputStyle: 'default-user-style' }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(projectDir, '.claude', 'settings.json'),
+      JSON.stringify({ outputStyle: 'project-base-style' }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(projectDir, '.claude', 'settings.local.json'),
+      JSON.stringify({ outputStyle: 'tech-leader' }),
+      'utf8',
+    );
+
+    const counts = await countConfigs(projectDir);
+    assert.equal(counts.outputStyle, 'tech-leader');
+  } finally {
+    restoreEnvVar('HOME', originalHome);
     await rm(homeDir, { recursive: true, force: true });
     await rm(projectDir, { recursive: true, force: true });
   }
@@ -1036,6 +1515,358 @@ test('Issue #3: MCP count updates correctly when servers are disabled', async ()
     );
     counts = await countConfigs();
     assert.equal(counts.mcpCount, 0, 'Should show 0 MCPs when all are disabled');
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+// === Config cache tests ===
+
+async function getConfigCacheDir(configDir) {
+  return path.join(configDir, 'plugins', 'claude-hud', 'config-cache');
+}
+
+test('countConfigs cache: second call uses cache (mtime unchanged)', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await writeFile(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global', 'utf8');
+
+    const settingsContent = JSON.stringify({ mcpServers: { one: {} } });
+    const settingsPath = path.join(homeDir, '.claude', 'settings.json');
+    await writeFile(settingsPath, settingsContent, 'utf8');
+
+    // Pin mtimes to fixed integer seconds to avoid float precision loss
+    const claudeDir = path.join(homeDir, '.claude');
+    const claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
+    fs.utimesSync(settingsPath, 1710000000, 1710000000);
+    fs.utimesSync(claudeMdPath, 1710000000, 1710000000);
+
+    const first = await countConfigs();
+    assert.equal(first.claudeMdCount, 1);
+    assert.equal(first.mcpCount, 1);
+
+    // Verify cache file was created
+    const cacheDir = await getConfigCacheDir(claudeDir);
+    assert.ok(fs.existsSync(cacheDir), 'config-cache directory should exist');
+
+    // Corrupt the settings file but preserve mtime+size
+    await writeFile(settingsPath, 'x'.repeat(settingsContent.length), 'utf8');
+    fs.utimesSync(settingsPath, 1710000000, 1710000000);
+
+    // Second call should still return cached result
+    const second = await countConfigs();
+    assert.equal(second.claudeMdCount, 1);
+    assert.equal(second.mcpCount, 1);
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: miss on file modification (mtime changes)', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await writeFile(
+      path.join(homeDir, '.claude', 'settings.json'),
+      JSON.stringify({ mcpServers: { one: {} } }),
+      'utf8'
+    );
+
+    const first = await countConfigs();
+    assert.equal(first.mcpCount, 1);
+
+    // Modify settings.json — use explicit mtime bump to avoid timing flakiness
+    const settingsPath = path.join(homeDir, '.claude', 'settings.json');
+    const statBefore = fs.statSync(settingsPath);
+    await writeFile(
+      settingsPath,
+      JSON.stringify({ mcpServers: { one: {}, two: {}, three: {} } }),
+      'utf8'
+    );
+    // Force mtime forward by 1 second
+    fs.utimesSync(settingsPath, statBefore.atimeMs / 1000 + 1, statBefore.mtimeMs / 1000 + 1);
+
+    const second = await countConfigs();
+    assert.equal(second.mcpCount, 3, 'Should detect updated settings.json');
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: miss on file creation (CLAUDE.md appears)', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+
+    const first = await countConfigs();
+    assert.equal(first.claudeMdCount, 0);
+
+    // Create CLAUDE.md — changes the directory mtime
+    await writeFile(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global', 'utf8');
+
+    const second = await countConfigs();
+    assert.equal(second.claudeMdCount, 1, 'Should detect newly created CLAUDE.md');
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: miss on file deletion (CLAUDE.md removed)', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await writeFile(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global', 'utf8');
+
+    const first = await countConfigs();
+    assert.equal(first.claudeMdCount, 1);
+
+    // Delete CLAUDE.md — changes the directory mtime
+    fs.unlinkSync(path.join(homeDir, '.claude', 'CLAUDE.md'));
+
+    const second = await countConfigs();
+    assert.equal(second.claudeMdCount, 0, 'Should detect deleted CLAUDE.md');
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: miss on nested rules additions', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const projectDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-proj-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await mkdir(path.join(projectDir, '.claude', 'rules', 'nested'), { recursive: true });
+    await writeFile(path.join(projectDir, '.claude', 'rules', 'nested', 'one.md'), '# one', 'utf8');
+
+    const first = await countConfigs(projectDir);
+    assert.equal(first.rulesCount, 1);
+
+    await writeFile(path.join(projectDir, '.claude', 'rules', 'nested', 'two.md'), '# two', 'utf8');
+
+    const second = await countConfigs(projectDir);
+    assert.equal(second.rulesCount, 2, 'Should detect nested rules added after the cache was written');
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: isolation between different cwds', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const projectA = await mkdtemp(path.join(tmpdir(), 'claude-hud-projA-'));
+  const projectB = await mkdtemp(path.join(tmpdir(), 'claude-hud-projB-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await writeFile(path.join(projectA, 'CLAUDE.md'), 'projA', 'utf8');
+    // projectB has no CLAUDE.md
+
+    const countsA = await countConfigs(projectA);
+    const countsB = await countConfigs(projectB);
+
+    assert.equal(countsA.claudeMdCount, 1, 'Project A should have 1 CLAUDE.md');
+    assert.equal(countsB.claudeMdCount, 0, 'Project B should have 0 CLAUDE.md');
+
+    // Verify both get independent caches
+    const cacheDir = await getConfigCacheDir(path.join(homeDir, '.claude'));
+    const cacheFiles = fs.readdirSync(cacheDir);
+    assert.ok(cacheFiles.length >= 2, 'Should have separate cache files for different cwds');
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+    await rm(projectA, { recursive: true, force: true });
+    await rm(projectB, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: isolation between different CLAUDE_CONFIG_DIRs', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const configA = path.join(homeDir, '.claude-a');
+  const configB = path.join(homeDir, '.claude-b');
+  const originalHome = process.env.HOME;
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(configA, { recursive: true });
+    await mkdir(configB, { recursive: true });
+    await writeFile(path.join(configA, 'CLAUDE.md'), 'config-a', 'utf8');
+    // configB has no CLAUDE.md
+
+    process.env.CLAUDE_CONFIG_DIR = configA;
+    const countsA = await countConfigs();
+
+    process.env.CLAUDE_CONFIG_DIR = configB;
+    const countsB = await countConfigs();
+
+    assert.equal(countsA.claudeMdCount, 1, 'Config A should have 1 CLAUDE.md');
+    assert.equal(countsB.claudeMdCount, 0, 'Config B should have 0 CLAUDE.md');
+  } finally {
+    restoreEnvVar('HOME', originalHome);
+    restoreEnvVar('CLAUDE_CONFIG_DIR', originalConfigDir);
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: corrupted cache file handled gracefully', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await writeFile(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global', 'utf8');
+
+    // First call populates cache
+    const first = await countConfigs();
+    assert.equal(first.claudeMdCount, 1);
+
+    // Corrupt all cache files
+    const cacheDir = await getConfigCacheDir(path.join(homeDir, '.claude'));
+    const cacheFiles = fs.readdirSync(cacheDir);
+    for (const file of cacheFiles) {
+      fs.writeFileSync(path.join(cacheDir, file), '{not-valid-json!!!', 'utf8');
+    }
+
+    // Should still return correct results via fresh recompute
+    const second = await countConfigs();
+    assert.equal(second.claudeMdCount, 1, 'Should recompute correctly after cache corruption');
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: malformed cache payload falls back to fresh recompute', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await writeFile(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global', 'utf8');
+
+    const first = await countConfigs();
+    assert.equal(first.claudeMdCount, 1);
+
+    const cacheDir = await getConfigCacheDir(path.join(homeDir, '.claude'));
+    const cacheFiles = fs.readdirSync(cacheDir);
+    assert.equal(cacheFiles.length, 1);
+
+    fs.writeFileSync(path.join(cacheDir, cacheFiles[0]), JSON.stringify({
+      key: {
+        cwd: null,
+        claudeConfigDir: path.join(homeDir, '.claude'),
+        sentinels: {
+          [path.join(homeDir, '.claude', 'CLAUDE.md')]: fs.existsSync(path.join(homeDir, '.claude', 'CLAUDE.md'))
+            ? { mtimeMs: fs.statSync(path.join(homeDir, '.claude', 'CLAUDE.md')).mtimeMs, size: fs.statSync(path.join(homeDir, '.claude', 'CLAUDE.md')).size }
+            : null,
+          [path.join(homeDir, '.claude', 'rules')]: null,
+          [path.join(homeDir, '.claude', 'settings.json')]: null,
+          [path.join(homeDir, '.claude.json')]: null,
+        },
+      },
+      data: {
+        claudeMdCount: 'oops',
+        rulesCount: 999,
+        mcpCount: 999,
+        hooksCount: 999,
+      },
+    }), 'utf8');
+
+    const second = await countConfigs();
+    assert.equal(second.claudeMdCount, 1, 'Should ignore malformed cached counts and recompute');
+    assert.equal(second.rulesCount, 0);
+    assert.equal(second.mcpCount, 0);
+    assert.equal(second.hooksCount, 0);
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: first invocation without cache dir', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await writeFile(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global', 'utf8');
+    await writeFile(
+      path.join(homeDir, '.claude', 'settings.json'),
+      JSON.stringify({ mcpServers: { s1: {} }, hooks: { onStart: {} } }),
+      'utf8'
+    );
+
+    // No config-cache/ dir exists yet
+    const cacheDir = await getConfigCacheDir(path.join(homeDir, '.claude'));
+    assert.ok(!fs.existsSync(cacheDir), 'config-cache should not exist initially');
+
+    const result = await countConfigs();
+    assert.equal(result.claudeMdCount, 1);
+    assert.equal(result.mcpCount, 1);
+    assert.equal(result.hooksCount, 1);
+
+    // Cache dir should now be created
+    assert.ok(fs.existsSync(cacheDir), 'config-cache should be created after first call');
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('countConfigs cache: works without cwd (user scope only)', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'claude-hud-cc-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true });
+    await writeFile(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global', 'utf8');
+    await writeFile(
+      path.join(homeDir, '.claude', 'settings.json'),
+      JSON.stringify({ mcpServers: { a: {}, b: {} } }),
+      'utf8'
+    );
+
+    // First call without cwd
+    const first = await countConfigs();
+    assert.equal(first.claudeMdCount, 1);
+    assert.equal(first.mcpCount, 2);
+
+    // Verify cache was written
+    const cacheDir = await getConfigCacheDir(path.join(homeDir, '.claude'));
+    assert.ok(fs.existsSync(cacheDir), 'cache should exist after first call');
+
+    // Second call should use cache
+    const second = await countConfigs();
+    assert.equal(second.claudeMdCount, 1);
+    assert.equal(second.mcpCount, 2);
   } finally {
     process.env.HOME = originalHome;
     await rm(homeDir, { recursive: true, force: true });

@@ -1,7 +1,7 @@
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { existsSync, utimesSync } from 'node:fs';
+import { existsSync, realpathSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -101,7 +101,7 @@ test('getClaudeCodeVersion persists cache across process resets under CLAUDE_CON
     resolveCalls = 0;
     _setResolveClaudeBinaryForTests(() => {
       resolveCalls += 1;
-      throw new Error('should not rescan PATH when disk cache is valid');
+      return { path: binaryPath, mtimeMs: binaryMtimeMs };
     });
     _setExecFileImplForTests(async () => {
       throw new Error('should not shell out when disk cache is valid');
@@ -110,7 +110,49 @@ test('getClaudeCodeVersion persists cache across process resets under CLAUDE_CON
     const second = await getClaudeCodeVersion();
     assert.equal(second, '2.2.0-beta.1+abc123');
     assert.equal(execCalls, 1);
-    assert.equal(resolveCalls, 0);
+    assert.equal(resolveCalls, 1);
+  } finally {
+    restoreEnvVar('HOME', originalHome);
+    restoreEnvVar('CLAUDE_CONFIG_DIR', originalConfigDir);
+    await rm(tempHome, { recursive: true, force: true });
+  }
+});
+
+test('getClaudeCodeVersion refreshes when the resolved Claude binary path changes', async () => {
+  const tempHome = await mkdtemp(path.join(tmpdir(), 'claude-hud-version-symlink-'));
+  const customConfigDir = path.join(tempHome, '.claude-alt');
+  const binaryPathV1 = path.join(tempHome, 'claude-v1');
+  const binaryPathV2 = path.join(tempHome, 'claude-v2');
+  const originalHome = process.env.HOME;
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  let execCalls = 0;
+  let currentBinaryPath = binaryPathV1;
+
+  process.env.HOME = tempHome;
+  process.env.CLAUDE_CONFIG_DIR = customConfigDir;
+  await writeFile(binaryPathV1, '#!/bin/sh\n', 'utf8');
+  await writeFile(binaryPathV2, '#!/bin/sh\n', 'utf8');
+  const binaryMtimeMs = 1710000000000;
+  utimesSync(binaryPathV1, binaryMtimeMs / 1000, binaryMtimeMs / 1000);
+  utimesSync(binaryPathV2, binaryMtimeMs / 1000, binaryMtimeMs / 1000);
+
+  try {
+    _setResolveClaudeBinaryForTests(() => ({ path: currentBinaryPath, mtimeMs: binaryMtimeMs }));
+    _setExecFileImplForTests(async () => {
+      execCalls += 1;
+      return { stdout: execCalls === 1 ? '2.1.97 (Claude Code)\n' : '2.1.104 (Claude Code)\n' };
+    });
+
+    const first = await getClaudeCodeVersion();
+    assert.equal(first, '2.1.97');
+    assert.equal(execCalls, 1);
+
+    _resetVersionCache();
+    currentBinaryPath = binaryPathV2;
+
+    const second = await getClaudeCodeVersion();
+    assert.equal(second, '2.1.104');
+    assert.equal(execCalls, 2);
   } finally {
     restoreEnvVar('HOME', originalHome);
     restoreEnvVar('CLAUDE_CONFIG_DIR', originalConfigDir);
@@ -172,6 +214,7 @@ test('getClaudeCodeVersion executes the resolved binary path', async () => {
   utimesSync(binaryPath, binaryMtimeMs / 1000, binaryMtimeMs / 1000);
 
   try {
+    const realBinaryPath = realpathSync(binaryPath);
     _setResolveClaudeBinaryForTests(() => ({ path: binaryPath, mtimeMs: binaryMtimeMs }));
     _setExecFileImplForTests(async (file) => {
       execCalls.push(file);
@@ -180,7 +223,7 @@ test('getClaudeCodeVersion executes the resolved binary path', async () => {
 
     const version = await getClaudeCodeVersion();
     assert.equal(version, '2.1.81');
-    assert.deepEqual(execCalls, [binaryPath]);
+    assert.deepEqual(execCalls, [realBinaryPath]);
   } finally {
     restoreEnvVar('HOME', originalHome);
     restoreEnvVar('CLAUDE_CONFIG_DIR', originalConfigDir);
@@ -205,6 +248,7 @@ test('getClaudeCodeVersion uses the Windows wrapper invocation for .cmd binaries
   utimesSync(binaryPath, binaryMtimeMs / 1000, binaryMtimeMs / 1000);
 
   try {
+    const realBinaryPath = realpathSync(binaryPath);
     _setVersionInvocationEnvForTests(() => 'win32', () => 'C:\\Windows\\System32\\cmd.exe');
     _setResolveClaudeBinaryForTests(() => ({ path: binaryPath, mtimeMs: binaryMtimeMs }));
     _setExecFileImplForTests(async (file, args) => {
@@ -214,7 +258,7 @@ test('getClaudeCodeVersion uses the Windows wrapper invocation for .cmd binaries
 
     const version = await getClaudeCodeVersion();
     assert.equal(version, '2.1.81');
-    const expectedInvocation = _getClaudeVersionInvocation(binaryPath, 'win32', 'C:\\Windows\\System32\\cmd.exe');
+    const expectedInvocation = _getClaudeVersionInvocation(realBinaryPath, 'win32', 'C:\\Windows\\System32\\cmd.exe');
     assert.deepEqual(execCalls, [{
       file: expectedInvocation.file,
       args: expectedInvocation.args,
