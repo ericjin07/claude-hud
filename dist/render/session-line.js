@@ -1,5 +1,4 @@
-import { isLimitReached } from '../types.js';
-import { isMiniMaxUsageData } from '../minimax-types.js';
+import { isLimitReached, toNormalizedUsageData } from '../types.js';
 import { getContextPercent, getBufferedPercent, getModelName, formatModelName, getProviderLabel, getTotalTokens } from '../stdin.js';
 import { getOutputSpeed } from '../speed-tracker.js';
 import { coloredBar, critical, warning, git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, getContextColor, getQuotaColor, quotaBar, custom as customColor, RESET } from './colors.js';
@@ -140,19 +139,19 @@ export function renderSessionLine(ctx) {
     }
     // Usage limits display (shown when enabled in config, respects usageThreshold)
     if (display?.showUsage !== false && ctx.usageData && !providerLabel) {
-        const usageData = ctx.usageData;
+        const usageData = toNormalizedUsageData(ctx.usageData);
+        const fiveHourWindow = usageData.windows.find((window) => window.key === '5h') ?? null;
+        const sevenDayWindow = usageData.windows.find((window) => window.key === '7d') ?? null;
+        const primaryWindow = usageData.windows[0] ?? null;
         const usageCompact = display?.usageCompact ?? false;
         const showResetLabel = display?.showResetLabel ?? true;
-        if (usageData.apiUnavailable && isMiniMaxUsageData(usageData)) {
+        if (usageData.apiUnavailable && usageData.providerId === 'minimax') {
             const errorHint = formatUsageError(usageData.apiError);
             parts.push(warning(`usage: ⚠${errorHint}`, colors));
         }
         else if (isLimitReached(usageData)) {
-            const resetTime = isMiniMaxUsageData(usageData)
-                ? formatResetTime(usageData.resetAt, timeFormat)
-                : usageData.fiveHour === 100
-                    ? formatResetTime(usageData.fiveHourResetAt, timeFormat)
-                    : formatResetTime(usageData.sevenDayResetAt, timeFormat);
+            const limitWindow = usageData.windows.find((window) => window.usedPercent === 100) ?? primaryWindow;
+            const resetTime = formatResetTime(limitWindow?.resetAt ?? null, timeFormat);
             if (usageCompact) {
                 parts.push(critical(`⚠ Limit${resetTime ? ` (${resetTime})` : ''}`, colors));
             }
@@ -167,18 +166,19 @@ export function renderSessionLine(ctx) {
         }
         else {
             const usageThreshold = display?.usageThreshold ?? 0;
-            if (isMiniMaxUsageData(usageData)) {
-                const usedPercent = Math.max(0, 100 - usageData.utilization);
-                if (usedPercent >= usageThreshold) {
+            if (usageData.providerId === 'minimax') {
+                const usedPercent = primaryWindow?.usedPercent ?? null;
+                const resetAt = primaryWindow?.resetAt ?? null;
+                if (usedPercent !== null && usedPercent >= usageThreshold) {
                     if (usageCompact) {
-                        parts.push(formatCompactWindowPart('5h', usedPercent, usageData.resetAt, timeFormat, colors));
+                        parts.push(formatCompactWindowPart('5h', usedPercent, resetAt, timeFormat, colors));
                     }
                     else {
                         const usageBarEnabled = display?.usageBarEnabled ?? true;
                         const minimaxPart = formatUsageWindowPart({
                             label: '5h',
                             percent: usedPercent,
-                            resetAt: usageData.resetAt,
+                            resetAt,
                             colors,
                             usageBarEnabled,
                             barWidth,
@@ -190,8 +190,8 @@ export function renderSessionLine(ctx) {
                 }
             }
             else {
-                const fiveHour = usageData.fiveHour;
-                const sevenDay = usageData.sevenDay;
+                const fiveHour = fiveHourWindow?.usedPercent ?? null;
+                const sevenDay = sevenDayWindow?.usedPercent ?? null;
                 const effectiveUsage = Math.max(fiveHour ?? 0, sevenDay ?? 0);
                 if (effectiveUsage >= usageThreshold) {
                     const usageBarEnabled = display?.usageBarEnabled ?? true;
@@ -200,11 +200,11 @@ export function renderSessionLine(ctx) {
                         : '';
                     if (usageCompact) {
                         const fiveHourPart = fiveHour !== null
-                            ? formatCompactWindowPart('5h', fiveHour, usageData.fiveHourResetAt, timeFormat, colors)
+                            ? formatCompactWindowPart('5h', fiveHour, fiveHourWindow?.resetAt ?? null, timeFormat, colors)
                             : null;
                         const sevenDayThreshold = display?.sevenDayThreshold ?? 80;
                         const sevenDayPart = (sevenDay !== null && (fiveHour === null || sevenDay >= sevenDayThreshold))
-                            ? formatCompactWindowPart('7d', sevenDay, usageData.sevenDayResetAt, timeFormat, colors)
+                            ? formatCompactWindowPart('7d', sevenDay, sevenDayWindow?.resetAt ?? null, timeFormat, colors)
                             : null;
                         if (fiveHourPart && sevenDayPart) {
                             parts.push(`${fiveHourPart}${syncingSuffix}`);
@@ -221,7 +221,7 @@ export function renderSessionLine(ctx) {
                         const weeklyOnlyPart = formatUsageWindowPart({
                             label: t('label.weekly'),
                             percent: sevenDay,
-                            resetAt: usageData.sevenDayResetAt,
+                            resetAt: sevenDayWindow?.resetAt ?? null,
                             colors,
                             usageBarEnabled,
                             barWidth,
@@ -235,7 +235,7 @@ export function renderSessionLine(ctx) {
                         const fiveHourPart = formatUsageWindowPart({
                             label: '5h',
                             percent: fiveHour,
-                            resetAt: usageData.fiveHourResetAt,
+                            resetAt: fiveHourWindow?.resetAt ?? null,
                             colors,
                             usageBarEnabled,
                             barWidth,
@@ -247,7 +247,7 @@ export function renderSessionLine(ctx) {
                             const sevenDayPart = formatUsageWindowPart({
                                 label: t('label.weekly'),
                                 percent: sevenDay,
-                                resetAt: usageData.sevenDayResetAt,
+                                resetAt: sevenDayWindow?.resetAt ?? null,
                                 colors,
                                 usageBarEnabled,
                                 barWidth,

@@ -8,7 +8,6 @@ import { parseExtraCmdArg, runExtraCmd } from "./extra-cmd.js";
 import { getClaudeCodeVersion } from "./version.js";
 import { getMemoryUsage } from "./memory.js";
 import { getMiniMaxUsage } from "./minimax-usage.js";
-import type { MiniMaxUsageData } from "./minimax-types.js";
 import { resolveEffortLevel } from "./effort.js";
 import { applyContextWindowFallback } from "./context-cache.js";
 import { getUsageFromExternalSnapshot } from "./external-usage.js";
@@ -77,51 +76,6 @@ function normalizeUsageData(data: UsageData): NormalizedUsageData {
   }
 
   return normalized;
-}
-
-function toLegacyUsageData(data: NormalizedUsageData): RenderContext["usageData"] {
-  if (data.providerId === "minimax") {
-    const primaryWindow = data.windows.find((window) => window.key === "5h") ?? data.windows[0];
-    if (!primaryWindow) {
-      return null;
-    }
-
-    const legacyMiniMaxUsage: MiniMaxUsageData = {
-      planName: "MiniMax" as const,
-      utilization: Math.max(0, 100 - (primaryWindow.usedPercent ?? 0)),
-      resetAt: primaryWindow.resetAt,
-    };
-
-    if (data.apiUnavailable !== undefined) {
-      legacyMiniMaxUsage.apiUnavailable = data.apiUnavailable;
-    }
-
-    if (data.apiError !== undefined) {
-      legacyMiniMaxUsage.apiError = data.apiError;
-    }
-
-    return legacyMiniMaxUsage;
-  }
-
-  const fiveHourWindow = data.windows.find((window) => window.key === "5h") ?? null;
-  const sevenDayWindow = data.windows.find((window) => window.key === "7d") ?? null;
-  const legacyUsage: UsageData = {
-    planName: data.planName,
-    fiveHour: fiveHourWindow?.usedPercent ?? null,
-    sevenDay: sevenDayWindow?.usedPercent ?? null,
-    fiveHourResetAt: fiveHourWindow?.resetAt ?? null,
-    sevenDayResetAt: sevenDayWindow?.resetAt ?? null,
-  };
-
-  if (data.apiUnavailable !== undefined) {
-    legacyUsage.apiUnavailable = data.apiUnavailable;
-  }
-
-  if (data.apiError !== undefined) {
-    legacyUsage.apiError = data.apiError;
-  }
-
-  return legacyUsage;
 }
 
 export async function resolveUsageContext(
@@ -225,7 +179,7 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
 
     let usageData: RenderContext["usageData"] = null;
     if (config.display.showUsage !== false) {
-      const normalizedUsage = await resolveUsageContext({
+      usageData = await resolveUsageContext({
         stdin,
         config,
         getMiniMaxUsage: deps.getMiniMaxUsage,
@@ -233,10 +187,6 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
         getUsageFromExternalSnapshot: deps.getUsageFromExternalSnapshot,
         now: deps.now,
       });
-
-      if (normalizedUsage) {
-        usageData = toLegacyUsageData(normalizedUsage);
-      }
     }
 
     const extraCmd = deps.parseExtraCmdArg();

@@ -256,11 +256,23 @@ test("main includes usageData from stdin when available", async () => {
 
   assert.equal(externalCalls, 0);
   assert.deepEqual(renderedContext?.usageData, {
+    providerId: "claude",
+    providerLabel: "Claude",
     planName: null,
-    fiveHour: 50,
-    sevenDay: 25,
-    fiveHourResetAt: new Date(1710000000 * 1000),
-    sevenDayResetAt: new Date(1710600000 * 1000),
+    windows: [
+      {
+        key: "5h",
+        label: "5h",
+        usedPercent: 50,
+        resetAt: new Date(1710000000 * 1000),
+      },
+      {
+        key: "7d",
+        label: "7d",
+        usedPercent: 25,
+        resetAt: new Date(1710600000 * 1000),
+      },
+    ],
   });
 });
 
@@ -299,9 +311,17 @@ test("main uses MiniMax usage through the normalized resolver bridge", async () 
   assert.equal(stdinCalls, 0);
   assert.equal(externalCalls, 0);
   assert.deepEqual(renderedContext?.usageData, {
+    providerId: "minimax",
+    providerLabel: "MiniMax",
     planName: "MiniMax",
-    utilization: 45,
-    resetAt,
+    windows: [
+      {
+        key: "5h",
+        label: "5h",
+        usedPercent: 55,
+        resetAt,
+      },
+    ],
     apiUnavailable: true,
     apiError: "rate-limited",
   });
@@ -360,7 +380,25 @@ test("main uses external usage fallback when stdin rate limits are absent", asyn
   });
 
   assert.equal(externalCalls, 1);
-  assert.deepEqual(renderedContext?.usageData, externalUsage);
+  assert.deepEqual(renderedContext?.usageData, {
+    providerId: "claude",
+    providerLabel: "Claude",
+    planName: null,
+    windows: [
+      {
+        key: "5h",
+        label: "5h",
+        usedPercent: 42,
+        resetAt: new Date("2026-04-20T15:00:00.000Z"),
+      },
+      {
+        key: "7d",
+        label: "7d",
+        usedPercent: 85,
+        resetAt: new Date("2026-04-27T12:00:00.000Z"),
+      },
+    ],
+  });
 });
 
 test("main prefers stdin usage over external usage fallback", async () => {
@@ -394,11 +432,23 @@ test("main prefers stdin usage over external usage fallback", async () => {
 
   assert.equal(externalCalls, 0);
   assert.deepEqual(renderedContext?.usageData, {
+    providerId: "claude",
+    providerLabel: "Claude",
     planName: null,
-    fiveHour: 22,
-    sevenDay: 55,
-    fiveHourResetAt: new Date(1710000000 * 1000),
-    sevenDayResetAt: new Date(1710600000 * 1000),
+    windows: [
+      {
+        key: "5h",
+        label: "5h",
+        usedPercent: 22,
+        resetAt: new Date(1710000000 * 1000),
+      },
+      {
+        key: "7d",
+        label: "7d",
+        usedPercent: 55,
+        resetAt: new Date(1710600000 * 1000),
+      },
+    ],
   });
 });
 

@@ -94,6 +94,12 @@ export interface NormalizedUsageData {
   apiError?: string;
 }
 
+export type UsageLikeData = NormalizedUsageData | UsageData | MiniMaxUsageData;
+
+function isNormalizedUsageData(data: UsageLikeData): data is NormalizedUsageData {
+  return 'windows' in data && Array.isArray(data.windows);
+}
+
 export interface ExternalUsageSnapshot {
   five_hour?: {
     used_percentage?: number | null;
@@ -114,11 +120,77 @@ export interface MemoryInfo {
 }
 
 /** Check if usage limit is reached (either window at 100% or MiniMax at 0% remaining) */
-export function isLimitReached(data: UsageData | MiniMaxUsageData): boolean {
-  if (isMiniMaxUsageData(data)) {
-    return data.utilization === 0;
+export function toNormalizedUsageData(data: UsageLikeData): NormalizedUsageData {
+  if (isNormalizedUsageData(data)) {
+    return data;
   }
-  return data.fiveHour === 100 || data.sevenDay === 100;
+
+  if (isMiniMaxUsageData(data)) {
+    const normalized: NormalizedUsageData = {
+      providerId: 'minimax',
+      providerLabel: 'MiniMax',
+      planName: data.planName,
+      windows: [
+        {
+          key: '5h',
+          label: '5h',
+          usedPercent: Math.max(0, 100 - data.utilization),
+          resetAt: data.resetAt,
+        },
+      ],
+    };
+
+    if (data.apiUnavailable !== undefined) {
+      normalized.apiUnavailable = data.apiUnavailable;
+    }
+
+    if (data.apiError !== undefined) {
+      normalized.apiError = data.apiError;
+    }
+
+    return normalized;
+  }
+
+  const normalized: NormalizedUsageData = {
+    providerId: 'claude',
+    providerLabel: 'Claude',
+    planName: data.planName,
+    windows: [
+      {
+        key: '5h',
+        label: '5h',
+        usedPercent: data.fiveHour,
+        resetAt: data.fiveHourResetAt,
+      },
+      {
+        key: '7d',
+        label: '7d',
+        usedPercent: data.sevenDay,
+        resetAt: data.sevenDayResetAt,
+      },
+    ],
+  };
+
+  if (data.apiUnavailable !== undefined) {
+    normalized.apiUnavailable = data.apiUnavailable;
+  }
+
+  if (data.apiError !== undefined) {
+    normalized.apiError = data.apiError;
+  }
+
+  return normalized;
+}
+
+/** Check if any usage window has reached its limit. */
+export function isLimitReached(data: UsageLikeData): boolean {
+  const normalized = toNormalizedUsageData(data);
+  for (const window of normalized.windows) {
+    if (window.usedPercent === 100) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export interface SessionTokenUsage {
@@ -147,7 +219,7 @@ export interface RenderContext {
   hooksCount: number;
   sessionDuration: string;
   gitStatus: GitStatus | null;
-  usageData: UsageData | MiniMaxUsageData | null;
+  usageData: NormalizedUsageData | null;
   memoryUsage: MemoryInfo | null;
   config: HudConfig;
   extraLabel: string | null;

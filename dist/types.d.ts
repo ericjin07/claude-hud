@@ -83,6 +83,7 @@ export interface NormalizedUsageData {
     apiUnavailable?: boolean;
     apiError?: string;
 }
+export type UsageLikeData = NormalizedUsageData | UsageData | MiniMaxUsageData;
 export interface ExternalUsageSnapshot {
     five_hour?: {
         used_percentage?: number | null;
@@ -101,7 +102,9 @@ export interface MemoryInfo {
     usedPercent: number;
 }
 /** Check if usage limit is reached (either window at 100% or MiniMax at 0% remaining) */
-export declare function isLimitReached(data: UsageData | MiniMaxUsageData): boolean;
+export declare function toNormalizedUsageData(data: UsageLikeData): NormalizedUsageData;
+/** Check if any usage window has reached its limit. */
+export declare function isLimitReached(data: UsageLikeData): boolean;
 export interface SessionTokenUsage {
     inputTokens: number;
     outputTokens: number;
@@ -126,7 +129,7 @@ export interface RenderContext {
     hooksCount: number;
     sessionDuration: string;
     gitStatus: GitStatus | null;
-    usageData: UsageData | MiniMaxUsageData | null;
+    usageData: NormalizedUsageData | null;
     memoryUsage: MemoryInfo | null;
     config: HudConfig;
     extraLabel: string | null;

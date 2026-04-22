@@ -1990,14 +1990,99 @@ test('render compact layout keeps activity lines even when elementOrder omits th
 test('renders MiniMax usage correctly', () => {
   const ctx = baseContext();
   ctx.usageData = {
+    providerId: 'minimax',
+    providerLabel: 'MiniMax',
     planName: 'MiniMax',
-    utilization: 62,
-    resetAt: new Date(Date.now() + 3 * 60 * 60 * 1000), // 3h from now
-    apiUnavailable: false,
+    windows: [
+      {
+        key: '5h',
+        label: '5h',
+        usedPercent: 38,
+        resetAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+      },
+    ],
   };
   const line = renderUsageLine(ctx);
   assert.ok(line.includes('Usage'), `expected Usage label: ${line}`);
-  assert.ok(line.includes('38%'), `expected 38% used (100-62): ${line}`);
+  assert.ok(line.includes('38%'), `expected 38% used: ${line}`);
+});
+
+test('renderUsageLine shows MiniMax warning from normalized usage', () => {
+  const ctx = baseContext();
+  ctx.usageData = {
+    providerId: 'minimax',
+    providerLabel: 'MiniMax',
+    planName: 'MiniMax',
+    windows: [
+      {
+        key: '5h',
+        label: '5h',
+        usedPercent: 0,
+        resetAt: null,
+      },
+    ],
+    apiUnavailable: true,
+    apiError: 'rate-limited',
+  };
+
+  const plain = stripAnsi(renderUsageLine(ctx) ?? '');
+  assert.ok(plain.includes('Usage'));
+  assert.ok(plain.includes('syncing...'));
+});
+
+test('renderUsageLine renders normalized Claude usage windows directly', () => {
+  const ctx = baseContext();
+  ctx.usageData = {
+    providerId: 'claude',
+    providerLabel: 'Claude',
+    planName: null,
+    windows: [
+      {
+        key: '5h',
+        label: '5h',
+        usedPercent: 22,
+        resetAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+      },
+      {
+        key: '7d',
+        label: '7d',
+        usedPercent: 88,
+        resetAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+      },
+    ],
+  };
+
+  const plain = stripAnsi(renderUsageLine(ctx) ?? '');
+  assert.ok(plain.includes('Usage'));
+  assert.ok(plain.includes('22%'));
+  assert.ok(plain.includes('88%'));
+});
+
+test('renderSessionLine renders normalized weekly-only Claude usage directly', () => {
+  const ctx = baseContext();
+  ctx.usageData = {
+    providerId: 'claude',
+    providerLabel: 'Claude',
+    planName: null,
+    windows: [
+      {
+        key: '5h',
+        label: '5h',
+        usedPercent: null,
+        resetAt: null,
+      },
+      {
+        key: '7d',
+        label: '7d',
+        usedPercent: 91,
+        resetAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+      },
+    ],
+  };
+
+  const plain = stripAnsi(renderSessionLine(ctx));
+  assert.ok(plain.includes('91%'));
+  assert.ok(plain.includes('Weekly'));
 });
 
 test('renderSessionTokensLine returns null when session token display is disabled', () => {

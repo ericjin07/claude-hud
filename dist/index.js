@@ -43,42 +43,6 @@ function normalizeUsageData(data) {
     }
     return normalized;
 }
-function toLegacyUsageData(data) {
-    if (data.providerId === "minimax") {
-        const primaryWindow = data.windows.find((window) => window.key === "5h") ?? data.windows[0];
-        if (!primaryWindow) {
-            return null;
-        }
-        const legacyMiniMaxUsage = {
-            planName: "MiniMax",
-            utilization: Math.max(0, 100 - (primaryWindow.usedPercent ?? 0)),
-            resetAt: primaryWindow.resetAt,
-        };
-        if (data.apiUnavailable !== undefined) {
-            legacyMiniMaxUsage.apiUnavailable = data.apiUnavailable;
-        }
-        if (data.apiError !== undefined) {
-            legacyMiniMaxUsage.apiError = data.apiError;
-        }
-        return legacyMiniMaxUsage;
-    }
-    const fiveHourWindow = data.windows.find((window) => window.key === "5h") ?? null;
-    const sevenDayWindow = data.windows.find((window) => window.key === "7d") ?? null;
-    const legacyUsage = {
-        planName: data.planName,
-        fiveHour: fiveHourWindow?.usedPercent ?? null,
-        sevenDay: sevenDayWindow?.usedPercent ?? null,
-        fiveHourResetAt: fiveHourWindow?.resetAt ?? null,
-        sevenDayResetAt: sevenDayWindow?.resetAt ?? null,
-    };
-    if (data.apiUnavailable !== undefined) {
-        legacyUsage.apiUnavailable = data.apiUnavailable;
-    }
-    if (data.apiError !== undefined) {
-        legacyUsage.apiError = data.apiError;
-    }
-    return legacyUsage;
-}
 export async function resolveUsageContext(deps) {
     const miniMaxUsage = await deps.getMiniMaxUsage({
         ttls: {
@@ -162,7 +126,7 @@ export async function main(overrides = {}) {
             : null;
         let usageData = null;
         if (config.display.showUsage !== false) {
-            const normalizedUsage = await resolveUsageContext({
+            usageData = await resolveUsageContext({
                 stdin,
                 config,
                 getMiniMaxUsage: deps.getMiniMaxUsage,
@@ -170,9 +134,6 @@ export async function main(overrides = {}) {
                 getUsageFromExternalSnapshot: deps.getUsageFromExternalSnapshot,
                 now: deps.now,
             });
-            if (normalizedUsage) {
-                usageData = toLegacyUsageData(normalizedUsage);
-            }
         }
         const extraCmd = deps.parseExtraCmdArg();
         const extraLabel = extraCmd ? await deps.runExtraCmd(extraCmd) : null;
