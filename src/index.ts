@@ -1,20 +1,27 @@
-import { readStdin, getUsageFromStdin } from './stdin.js';
-import { parseTranscript } from './transcript.js';
-import { render } from './render/index.js';
-import { countConfigs } from './config-reader.js';
-import { getGitStatus } from './git.js';
-import { loadConfig } from './config.js';
-import { parseExtraCmdArg, runExtraCmd } from './extra-cmd.js';
-import { getClaudeCodeVersion } from './version.js';
-import { getMemoryUsage } from './memory.js';
-import { getMiniMaxUsage } from './minimax-usage.js';
-import type { RenderContext } from './types.js';
-import { fileURLToPath } from 'node:url';
-import { realpathSync } from 'node:fs';
+import { readStdin, getUsageFromStdin } from "./stdin.js";
+import { parseTranscript } from "./transcript.js";
+import { render } from "./render/index.js";
+import { countConfigs } from "./config-reader.js";
+import { getGitStatus } from "./git.js";
+import { loadConfig } from "./config.js";
+import { parseExtraCmdArg, runExtraCmd } from "./extra-cmd.js";
+import { getClaudeCodeVersion } from "./version.js";
+import { getMemoryUsage } from "./memory.js";
+import { getMiniMaxUsage } from "./minimax-usage.js";
+import { resolveEffortLevel } from "./effort.js";
+import { applyContextWindowFallback } from "./context-cache.js";
+import { getUsageFromExternalSnapshot } from "./external-usage.js";
+import { setLanguage, t } from "./i18n/index.js";
+import type { RenderContext } from "./types.js";
+
+export { getUsageFromExternalSnapshot } from "./external-usage.js";
+import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 
 export type MainDeps = {
   readStdin: typeof readStdin;
   getUsageFromStdin: typeof getUsageFromStdin;
+  getUsageFromExternalSnapshot: typeof getUsageFromExternalSnapshot;
   parseTranscript: typeof parseTranscript;
   countConfigs: typeof countConfigs;
   getGitStatus: typeof getGitStatus;
@@ -24,6 +31,7 @@ export type MainDeps = {
   getClaudeCodeVersion: typeof getClaudeCodeVersion;
   getMemoryUsage: typeof getMemoryUsage;
   getMiniMaxUsage: typeof getMiniMaxUsage;
+  applyContextWindowFallback: typeof applyContextWindowFallback;
   render: typeof render;
   now: () => number;
   log: (...args: unknown[]) => void;
@@ -33,6 +41,7 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
   const deps: MainDeps = {
     readStdin,
     getUsageFromStdin,
+    getUsageFromExternalSnapshot,
     parseTranscript,
     countConfigs,
     getGitStatus,
@@ -42,6 +51,7 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
     getClaudeCodeVersion,
     getMemoryUsage,
     getMiniMaxUsage,
+    applyContextWindowFallback,
     render,
     now: () => Date.now(),
     log: console.log,
@@ -53,50 +63,62 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
 
     if (!stdin) {
       // Running without stdin - this happens during setup verification
-      const isMacOS = process.platform === 'darwin';
-      deps.log('[claude-hud] Initializing...');
+      const config = await deps.loadConfig();
+      setLanguage(config.language);
+      const isMacOS = process.platform === "darwin";
+      deps.log(t("init.initializing"));
       if (isMacOS) {
-        deps.log('[claude-hud] Note: On macOS, you may need to restart Claude Code for the HUD to appear.');
+        deps.log(t("init.macosNote"));
       }
       return;
     }
 
-    const transcriptPath = stdin.transcript_path ?? '';
+    const transcriptPath = stdin.transcript_path ?? "";
     const transcript = await deps.parseTranscript(transcriptPath);
 
-    const { claudeMdCount, rulesCount, mcpCount, hooksCount } = await deps.countConfigs(stdin.cwd);
+    deps.applyContextWindowFallback(stdin, {}, transcript.sessionName);
+
+    const { claudeMdCount, rulesCount, mcpCount, hooksCount, outputStyle } =
+      await deps.countConfigs(stdin.cwd);
 
     const config = await deps.loadConfig();
+    setLanguage(config.language);
     const gitStatus = config.gitStatus.enabled
       ? await deps.getGitStatus(stdin.cwd)
       : null;
 
-    // Only fetch MiniMax usage if enabled in config (replaces env var requirement)
-    const miniMaxUsage = await deps.getMiniMaxUsage({
-      ttls: {
-        cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
-        failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
-      },
-    });
+    let usageData: RenderContext["usageData"] = null;
+    if (config.display.showUsage !== false) {
+      const miniMaxUsage = await deps.getMiniMaxUsage({
+        ttls: {
+          cacheTtlMs: config.usage.cacheTtlSeconds * 1000,
+          failureCacheTtlMs: config.usage.failureCacheTtlSeconds * 1000,
+        },
+      });
 
-    // Fall back to stdin rate_limits if MiniMax not configured
-    let usageData: RenderContext['usageData'] = null;
-    if (miniMaxUsage) {
-      usageData = miniMaxUsage;
-    } else if (config.display.showUsage !== false) {
-      usageData = deps.getUsageFromStdin(stdin);
+      usageData = miniMaxUsage ?? deps.getUsageFromStdin(stdin);
+      if (!usageData) {
+        usageData = deps.getUsageFromExternalSnapshot(config, deps.now());
+      }
     }
 
     const extraCmd = deps.parseExtraCmdArg();
     const extraLabel = extraCmd ? await deps.runExtraCmd(extraCmd) : null;
 
-    const sessionDuration = formatSessionDuration(transcript.sessionStart, deps.now);
+    const sessionDuration = formatSessionDuration(
+      transcript.sessionStart,
+      deps.now,
+    );
     const claudeCodeVersion = config.display.showClaudeCodeVersion
       ? await deps.getClaudeCodeVersion()
       : undefined;
-    const memoryUsage = config.display.showMemoryUsage && config.lineLayout === 'expanded'
-      ? await deps.getMemoryUsage()
+    const effortInfo = config.display.showEffortLevel
+      ? resolveEffortLevel(stdin.effort)
       : null;
+    const memoryUsage =
+      config.display.showMemoryUsage && config.lineLayout === "expanded"
+        ? await deps.getMemoryUsage()
+        : null;
 
     const ctx: RenderContext = {
       stdin,
@@ -111,24 +133,33 @@ export async function main(overrides: Partial<MainDeps> = {}): Promise<void> {
       memoryUsage,
       config,
       extraLabel,
+      outputStyle,
       claudeCodeVersion,
+      effortLevel: effortInfo?.level,
+      effortSymbol: effortInfo?.symbol,
     };
 
     deps.render(ctx);
   } catch (error) {
-    deps.log('[claude-hud] Error:', error instanceof Error ? error.message : 'Unknown error');
+    deps.log(
+      "[claude-hud] Error:",
+      error instanceof Error ? error.message : "Unknown error",
+    );
   }
 }
 
-export function formatSessionDuration(sessionStart?: Date, now: () => number = () => Date.now()): string {
+export function formatSessionDuration(
+  sessionStart?: Date,
+  now: () => number = () => Date.now(),
+): string {
   if (!sessionStart) {
-    return '';
+    return "";
   }
 
   const ms = now() - sessionStart.getTime();
   const mins = Math.floor(ms / 60000);
 
-  if (mins < 1) return '<1m';
+  if (mins < 1) return "<1m";
   if (mins < 60) return `${mins}m`;
 
   const hours = Math.floor(mins / 60);

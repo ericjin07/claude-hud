@@ -76,7 +76,11 @@ Ask the user: "Would you like to star the repository to support the project?"
 
 Only if they explicitly agree, run:
 ```bash
-gh repo star jarrodwatts/claude-hud
+if gh help repo 2>/dev/null | grep -q "star:"; then
+  gh repo star jarrodwatts/claude-hud
+else
+  gh api -X PUT /user/starred/jarrodwatts/claude-hud
+fi
 ```
 
 Never run this automatically without user consent.

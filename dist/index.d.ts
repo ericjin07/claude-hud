@@ -1,16 +1,20 @@
-import { readStdin, getUsageFromStdin } from './stdin.js';
-import { parseTranscript } from './transcript.js';
-import { render } from './render/index.js';
-import { countConfigs } from './config-reader.js';
-import { getGitStatus } from './git.js';
-import { loadConfig } from './config.js';
-import { parseExtraCmdArg, runExtraCmd } from './extra-cmd.js';
-import { getClaudeCodeVersion } from './version.js';
-import { getMemoryUsage } from './memory.js';
-import { getMiniMaxUsage } from './minimax-usage.js';
+import { readStdin, getUsageFromStdin } from "./stdin.js";
+import { parseTranscript } from "./transcript.js";
+import { render } from "./render/index.js";
+import { countConfigs } from "./config-reader.js";
+import { getGitStatus } from "./git.js";
+import { loadConfig } from "./config.js";
+import { parseExtraCmdArg, runExtraCmd } from "./extra-cmd.js";
+import { getClaudeCodeVersion } from "./version.js";
+import { getMemoryUsage } from "./memory.js";
+import { getMiniMaxUsage } from "./minimax-usage.js";
+import { applyContextWindowFallback } from "./context-cache.js";
+import { getUsageFromExternalSnapshot } from "./external-usage.js";
+export { getUsageFromExternalSnapshot } from "./external-usage.js";
 export type MainDeps = {
     readStdin: typeof readStdin;
     getUsageFromStdin: typeof getUsageFromStdin;
+    getUsageFromExternalSnapshot: typeof getUsageFromExternalSnapshot;
     parseTranscript: typeof parseTranscript;
     countConfigs: typeof countConfigs;
     getGitStatus: typeof getGitStatus;
@@ -20,6 +24,7 @@ export type MainDeps = {
     getClaudeCodeVersion: typeof getClaudeCodeVersion;
     getMemoryUsage: typeof getMemoryUsage;
     getMiniMaxUsage: typeof getMiniMaxUsage;
+    applyContextWindowFallback: typeof applyContextWindowFallback;
     render: typeof render;
     now: () => number;
     log: (...args: unknown[]) => void;

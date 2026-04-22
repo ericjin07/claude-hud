@@ -10,6 +10,7 @@ export interface StdinData {
     };
     context_window?: {
         context_window_size?: number;
+        total_input_tokens?: number | null;
         current_usage?: {
             input_tokens?: number;
             output_tokens?: number;
@@ -19,6 +20,13 @@ export interface StdinData {
         used_percentage?: number | null;
         remaining_percentage?: number | null;
     };
+    cost?: {
+        total_cost_usd?: number | null;
+        total_duration_ms?: number | null;
+        total_api_duration_ms?: number | null;
+        total_lines_added?: number | null;
+        total_lines_removed?: number | null;
+    } | null;
     rate_limits?: {
         five_hour?: {
             used_percentage?: number | null;
@@ -29,6 +37,7 @@ export interface StdinData {
             resets_at?: number | null;
         } | null;
     } | null;
+    effort?: string | null;
 }
 export interface ToolEntry {
     id: string;
@@ -60,6 +69,17 @@ export interface UsageData {
     apiUnavailable?: boolean;
     apiError?: string;
 }
+export interface ExternalUsageSnapshot {
+    five_hour?: {
+        used_percentage?: number | null;
+        resets_at?: string | number | null;
+    } | null;
+    seven_day?: {
+        used_percentage?: number | null;
+        resets_at?: string | number | null;
+    } | null;
+    updated_at?: string | number | null;
+}
 export interface MemoryInfo {
     totalBytes: number;
     usedBytes: number;
@@ -68,12 +88,20 @@ export interface MemoryInfo {
 }
 /** Check if usage limit is reached (either window at 100% or MiniMax at 0% remaining) */
 export declare function isLimitReached(data: UsageData | MiniMaxUsageData): boolean;
+export interface SessionTokenUsage {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+}
 export interface TranscriptData {
     tools: ToolEntry[];
     agents: AgentEntry[];
     todos: TodoItem[];
     sessionStart?: Date;
     sessionName?: string;
+    lastAssistantResponseAt?: Date;
+    sessionTokens?: SessionTokenUsage;
 }
 export interface RenderContext {
     stdin: StdinData;
@@ -88,6 +116,9 @@ export interface RenderContext {
     memoryUsage: MemoryInfo | null;
     config: HudConfig;
     extraLabel: string | null;
+    outputStyle?: string;
     claudeCodeVersion?: string;
+    effortLevel?: string;
+    effortSymbol?: string;
 }
 //# sourceMappingURL=types.d.ts.map

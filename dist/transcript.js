@@ -4,7 +4,26 @@ import * as path from 'node:path';
 import * as readline from 'readline';
 import { createHash } from 'node:crypto';
 import { getHudPluginDir } from './claude-config-dir.js';
+const TRANSCRIPT_CACHE_VERSION = 2;
 let createReadStreamImpl = fs.createReadStream;
+function normalizeTokenCount(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return 0;
+    }
+    return Math.max(0, Math.trunc(value));
+}
+function normalizeSessionTokens(tokens) {
+    if (!tokens || typeof tokens !== 'object') {
+        return undefined;
+    }
+    const raw = tokens;
+    return {
+        inputTokens: normalizeTokenCount(raw.inputTokens),
+        outputTokens: normalizeTokenCount(raw.outputTokens),
+        cacheCreationTokens: normalizeTokenCount(raw.cacheCreationTokens),
+        cacheReadTokens: normalizeTokenCount(raw.cacheReadTokens),
+    };
+}
 function getTranscriptCachePath(transcriptPath, homeDir) {
     const hash = createHash('sha256').update(path.resolve(transcriptPath)).digest('hex');
     return path.join(getHudPluginDir(homeDir), 'transcript-cache', `${hash}.json`);
@@ -39,6 +58,8 @@ function serializeTranscriptData(data) {
         todos: data.todos.map((todo) => ({ ...todo })),
         sessionStart: data.sessionStart?.toISOString(),
         sessionName: data.sessionName,
+        lastAssistantResponseAt: data.lastAssistantResponseAt?.toISOString(),
+        sessionTokens: data.sessionTokens,
     };
 }
 function deserializeTranscriptData(data) {
@@ -56,6 +77,8 @@ function deserializeTranscriptData(data) {
         todos: data.todos.map((todo) => ({ ...todo })),
         sessionStart: data.sessionStart ? new Date(data.sessionStart) : undefined,
         sessionName: data.sessionName,
+        lastAssistantResponseAt: data.lastAssistantResponseAt ? new Date(data.lastAssistantResponseAt) : undefined,
+        sessionTokens: normalizeSessionTokens(data.sessionTokens),
     };
 }
 function readTranscriptCache(transcriptPath, state) {
@@ -63,7 +86,10 @@ function readTranscriptCache(transcriptPath, state) {
         const cachePath = getTranscriptCachePath(transcriptPath, os.homedir());
         const raw = fs.readFileSync(cachePath, 'utf8');
         const parsed = JSON.parse(raw);
-        if (parsed.transcriptPath !== path.resolve(transcriptPath)
+        if (parsed.version !== TRANSCRIPT_CACHE_VERSION
+            || !parsed.data
+            || !parsed.transcriptPath
+            || parsed.transcriptPath !== path.resolve(transcriptPath)
             || parsed.transcriptState?.mtimeMs !== state.mtimeMs
             || parsed.transcriptState?.size !== state.size) {
             return null;
@@ -79,6 +105,7 @@ function writeTranscriptCache(transcriptPath, state, data) {
         const cachePath = getTranscriptCachePath(transcriptPath, os.homedir());
         fs.mkdirSync(path.dirname(cachePath), { recursive: true });
         const payload = {
+            version: TRANSCRIPT_CACHE_VERSION,
             transcriptPath: path.resolve(transcriptPath),
             transcriptState: state,
             data: serializeTranscriptData(data),
@@ -112,6 +139,12 @@ export async function parseTranscript(transcriptPath) {
     const taskIdToIndex = new Map();
     let latestSlug;
     let customTitle;
+    const sessionTokens = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+    };
     let parsedCleanly = false;
     try {
         const fileStream = createReadStreamImpl(transcriptPath);
@@ -130,6 +163,14 @@ export async function parseTranscript(transcriptPath) {
                 else if (typeof entry.slug === 'string') {
                     latestSlug = entry.slug;
                 }
+                // Accumulate token usage from assistant messages
+                if (entry.type === 'assistant' && entry.message?.usage) {
+                    const usage = entry.message.usage;
+                    sessionTokens.inputTokens += normalizeTokenCount(usage.input_tokens);
+                    sessionTokens.outputTokens += normalizeTokenCount(usage.output_tokens);
+                    sessionTokens.cacheCreationTokens += normalizeTokenCount(usage.cache_creation_input_tokens);
+                    sessionTokens.cacheReadTokens += normalizeTokenCount(usage.cache_read_input_tokens);
+                }
                 processEntry(entry, toolMap, agentMap, taskIdToIndex, latestTodos, result);
             }
             catch {
@@ -145,6 +186,7 @@ export async function parseTranscript(transcriptPath) {
     result.agents = Array.from(agentMap.values()).slice(-10);
     result.todos = latestTodos;
     result.sessionName = customTitle ?? latestSlug;
+    result.sessionTokens = sessionTokens;
     if (parsedCleanly) {
         writeTranscriptCache(transcriptPath, transcriptState, result);
     }
@@ -155,8 +197,12 @@ export function _setCreateReadStreamForTests(impl) {
 }
 function processEntry(entry, toolMap, agentMap, taskIdToIndex, latestTodos, result) {
     const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();
-    if (!result.sessionStart && entry.timestamp) {
+    const hasValidTimestamp = !Number.isNaN(timestamp.getTime());
+    if (!result.sessionStart && entry.timestamp && hasValidTimestamp) {
         result.sessionStart = timestamp;
+    }
+    if (entry.type === 'assistant' && entry.timestamp && hasValidTimestamp) {
+        result.lastAssistantResponseAt = timestamp;
     }
     const content = entry.message?.content;
     if (!content || !Array.isArray(content))
@@ -170,11 +216,11 @@ function processEntry(entry, toolMap, agentMap, taskIdToIndex, latestTodos, resu
                 status: 'running',
                 startTime: timestamp,
             };
-            if (block.name === 'Task') {
+            if (block.name === 'Task' || block.name === 'Agent') {
                 const input = block.input;
                 const agentEntry = {
                     id: block.id,
-                    type: input?.subagent_type ?? 'unknown',
+                    type: input?.subagent_type ?? 'agent',
                     model: input?.model ?? undefined,
                     description: input?.description ?? undefined,
                     status: 'running',
@@ -185,9 +231,29 @@ function processEntry(entry, toolMap, agentMap, taskIdToIndex, latestTodos, resu
             else if (block.name === 'TodoWrite') {
                 const input = block.input;
                 if (input?.todos && Array.isArray(input.todos)) {
+                    // Build reverse map: content → taskIds from existing state
+                    const contentToTaskIds = new Map();
+                    for (const [taskId, idx] of taskIdToIndex) {
+                        if (idx < latestTodos.length) {
+                            const content = latestTodos[idx].content;
+                            const ids = contentToTaskIds.get(content) ?? [];
+                            ids.push(taskId);
+                            contentToTaskIds.set(content, ids);
+                        }
+                    }
                     latestTodos.length = 0;
                     taskIdToIndex.clear();
                     latestTodos.push(...input.todos);
+                    // Re-register taskId mappings for items whose content matches
+                    for (let i = 0; i < latestTodos.length; i++) {
+                        const ids = contentToTaskIds.get(latestTodos[i].content);
+                        if (ids) {
+                            for (const taskId of ids) {
+                                taskIdToIndex.set(taskId, i);
+                            }
+                            contentToTaskIds.delete(latestTodos[i].content);
+                        }
+                    }
                 }
             }
             else if (block.name === 'TaskCreate') {

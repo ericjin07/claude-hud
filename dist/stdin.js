@@ -1,23 +1,103 @@
 import { AUTOCOMPACT_BUFFER_PERCENT } from './constants.js';
-export async function readStdin() {
-    if (process.stdin.isTTY) {
+const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 250;
+const DEFAULT_IDLE_TIMEOUT_MS = 30;
+const DEFAULT_MAX_STDIN_BYTES = 256 * 1024;
+export async function readStdin(stream = process.stdin, options = {}) {
+    if (stream.isTTY) {
         return null;
     }
-    const chunks = [];
+    const firstByteTimeoutMs = options.firstByteTimeoutMs ?? DEFAULT_FIRST_BYTE_TIMEOUT_MS;
+    const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    const maxBytes = options.maxBytes ?? DEFAULT_MAX_STDIN_BYTES;
     try {
-        process.stdin.setEncoding('utf8');
-        for await (const chunk of process.stdin) {
-            chunks.push(chunk);
-        }
-        const raw = chunks.join('');
-        if (!raw.trim()) {
-            return null;
-        }
-        return JSON.parse(raw);
+        stream.setEncoding('utf8');
     }
     catch {
         return null;
     }
+    return await new Promise((resolve) => {
+        let raw = '';
+        let settled = false;
+        let sawData = false;
+        let firstByteTimer;
+        let idleTimer;
+        const cleanup = () => {
+            if (firstByteTimer) {
+                clearTimeout(firstByteTimer);
+                firstByteTimer = undefined;
+            }
+            if (idleTimer) {
+                clearTimeout(idleTimer);
+                idleTimer = undefined;
+            }
+            stream.off('data', onData);
+            stream.off('end', onEnd);
+            stream.off('error', onError);
+            stream.pause();
+        };
+        const finish = (value) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            resolve(value);
+        };
+        const tryParse = () => {
+            const trimmed = raw.trim();
+            if (!trimmed) {
+                return null;
+            }
+            try {
+                return JSON.parse(trimmed);
+            }
+            catch {
+                return undefined;
+            }
+        };
+        const scheduleIdleParse = () => {
+            if (idleTimer) {
+                clearTimeout(idleTimer);
+            }
+            idleTimer = setTimeout(() => {
+                const parsed = tryParse();
+                finish(parsed ?? null);
+            }, idleTimeoutMs);
+        };
+        const onData = (chunk) => {
+            sawData = true;
+            if (firstByteTimer) {
+                clearTimeout(firstByteTimer);
+                firstByteTimer = undefined;
+            }
+            raw += String(chunk);
+            if (Buffer.byteLength(raw, 'utf8') > maxBytes) {
+                finish(null);
+                return;
+            }
+            const parsed = tryParse();
+            if (parsed !== undefined) {
+                finish(parsed);
+                return;
+            }
+            scheduleIdleParse();
+        };
+        const onEnd = () => {
+            const parsed = tryParse();
+            finish(parsed ?? null);
+        };
+        const onError = () => {
+            finish(null);
+        };
+        firstByteTimer = setTimeout(() => {
+            if (!sawData) {
+                finish(null);
+            }
+        }, firstByteTimeoutMs);
+        stream.on('data', onData);
+        stream.on('end', onEnd);
+        stream.on('error', onError);
+    });
 }
 export function getTotalTokens(stdin) {
     const usage = stdin.context_window?.current_usage;
@@ -28,10 +108,16 @@ export function getTotalTokens(stdin) {
 /**
  * Get native percentage from Claude Code v2.1.6+ if available.
  * Returns null if not available or invalid, triggering fallback to manual calculation.
+ *
+ * A value of 0 is treated as "not yet populated": on a fresh session Claude Code
+ * may emit used_percentage=0 before the first API response arrives, while
+ * current_usage already contains the real initial-context tokens (system prompt,
+ * tools, memory files, etc.).  Falling through to the token-based calculation
+ * ensures those tokens are reflected in the context bar from the very first tick.
  */
 function getNativePercent(stdin) {
     const nativePercent = stdin.context_window?.used_percentage;
-    if (typeof nativePercent === 'number' && !Number.isNaN(nativePercent)) {
+    if (typeof nativePercent === 'number' && !Number.isNaN(nativePercent) && nativePercent > 0) {
         return Math.min(100, Math.max(0, Math.round(nativePercent)));
     }
     return null;
@@ -72,6 +158,12 @@ export function getBufferedPercent(stdin) {
     const buffer = size * AUTOCOMPACT_BUFFER_PERCENT * scale;
     return Math.min(100, Math.round(((totalTokens + buffer) / size) * 100));
 }
+// Enterprise plan alias → human-readable display name
+const ENTERPRISE_ALIAS_LABELS = {
+    opusplan: 'Claude Opus',
+    sonnetplan: 'Claude Sonnet',
+    haikuplan: 'Claude Haiku',
+};
 export function getModelName(stdin) {
     const displayName = stdin.model?.display_name?.trim();
     if (displayName) {
@@ -80,6 +172,11 @@ export function getModelName(stdin) {
     const modelId = stdin.model?.id?.trim();
     if (!modelId) {
         return 'Unknown';
+    }
+    // Resolve enterprise plan aliases to readable labels
+    const enterpriseLabel = ENTERPRISE_ALIAS_LABELS[modelId.toLowerCase()];
+    if (enterpriseLabel) {
+        return enterpriseLabel;
     }
     const normalizedBedrockLabel = normalizeBedrockModelLabel(modelId);
     return normalizedBedrockLabel ?? modelId;
@@ -91,9 +188,29 @@ export function isBedrockModelId(modelId) {
     const normalized = modelId.toLowerCase();
     return normalized.includes('anthropic.claude-');
 }
+// Vertex AI model IDs use '@' as version separator (e.g. claude-3-5-sonnet@20241022)
+export function isVertexModelId(modelId) {
+    if (!modelId) {
+        return false;
+    }
+    return modelId.includes('@');
+}
+const ENTERPRISE_MODEL_IDS = new Set(['opusplan', 'sonnetplan', 'haikuplan']);
+export function isEnterpriseModelId(modelId) {
+    if (!modelId) {
+        return false;
+    }
+    return ENTERPRISE_MODEL_IDS.has(modelId.toLowerCase());
+}
 export function getProviderLabel(stdin) {
-    if (isBedrockModelId(stdin.model?.id)) {
+    if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
         return 'Bedrock';
+    }
+    if (process.env.CLAUDE_CODE_USE_VERTEX === '1') {
+        return 'Vertex';
+    }
+    if (isEnterpriseModelId(stdin.model?.id)) {
+        return 'Enterprise';
     }
     return null;
 }
@@ -126,6 +243,39 @@ export function getUsageFromStdin(stdin) {
         fiveHourResetAt: parseRateLimitResetAt(rateLimits.five_hour?.resets_at),
         sevenDayResetAt: parseRateLimitResetAt(rateLimits.seven_day?.resets_at),
     };
+}
+/**
+ * Strips redundant context-window size suffixes from model display names.
+ *
+ * Claude Code may include the context window size in the display name
+ * (e.g. "Opus 4.6 (1M context)"), but the HUD already shows context
+ * usage via the context bar — so the parenthetical is redundant.
+ */
+export function stripContextSuffix(name) {
+    return name.replace(/\s*\([^)]*\bcontext\b[^)]*\)/i, '').trim();
+}
+/**
+ * Formats a model name according to the user's chosen display settings.
+ *
+ * When `override` is set, it replaces the model name entirely.
+ * Otherwise, `format` controls how the raw name is abbreviated:
+ *
+ *   full:    Return raw name unchanged   (e.g. "Opus 4.6 (1M context)")
+ *   compact: Strip context-window suffix (e.g. "Opus 4.6")
+ *   short:   Strip context suffix AND leading "Claude " prefix (e.g. "Opus 4.6")
+ */
+export function formatModelName(name, format, override) {
+    if (override) {
+        return override;
+    }
+    if (!format || format === 'full') {
+        return name;
+    }
+    let result = stripContextSuffix(name);
+    if (format === 'short') {
+        result = result.replace(/^Claude\s+/i, '');
+    }
+    return result;
 }
 function normalizeBedrockModelLabel(modelId) {
     if (!isBedrockModelId(modelId)) {
