@@ -50,7 +50,19 @@ function cloneProviderDefinition(provider) {
             kind: provider.usageSource.kind,
             ...(provider.usageSource.endpoint ? { endpoint: provider.usageSource.endpoint } : {}),
             ...(provider.usageSource.path ? { path: provider.usageSource.path } : {}),
-            ...(provider.usageSource.auth ? { auth: { ...provider.usageSource.auth } } : {}),
+            ...(provider.usageSource.auth
+                ? {
+                    auth: {
+                        type: provider.usageSource.auth.type,
+                        ...(typeof provider.usageSource.auth.envName === 'string' && provider.usageSource.auth.envName.trim().length > 0
+                            ? { envName: provider.usageSource.auth.envName.trim() }
+                            : {}),
+                        ...(typeof provider.usageSource.auth.headerName === 'string' && provider.usageSource.auth.headerName.trim().length > 0
+                            ? { headerName: provider.usageSource.auth.headerName.trim() }
+                            : {}),
+                    },
+                }
+                : {}),
             ...(provider.usageSource.responseMapping
                 ? {
                     responseMapping: {
@@ -334,18 +346,41 @@ function normalizeProviderWindows(value) {
         windows.push({
             key,
             label,
-            usedPercentPath: typeof windowMapping.usedPercentPath === 'string'
-                ? windowMapping.usedPercentPath.trim()
-                : undefined,
-            remainingPercentPath: typeof windowMapping.remainingPercentPath === 'string'
-                ? windowMapping.remainingPercentPath.trim()
-                : undefined,
-            resetAtPath: typeof windowMapping.resetAtPath === 'string'
-                ? windowMapping.resetAtPath.trim()
-                : undefined,
+            ...(typeof windowMapping.usedPercentPath === 'string' && windowMapping.usedPercentPath.trim().length > 0
+                ? { usedPercentPath: windowMapping.usedPercentPath.trim() }
+                : {}),
+            ...(typeof windowMapping.remainingPercentPath === 'string' && windowMapping.remainingPercentPath.trim().length > 0
+                ? { remainingPercentPath: windowMapping.remainingPercentPath.trim() }
+                : {}),
+            ...(typeof windowMapping.resetAtPath === 'string' && windowMapping.resetAtPath.trim().length > 0
+                ? { resetAtPath: windowMapping.resetAtPath.trim() }
+                : {}),
         });
     }
     return windows.length > 0 ? windows : undefined;
+}
+function isSemanticallyValidProviderDefinition(provider) {
+    switch (provider.usageSource.kind) {
+        case 'http-json': {
+            if (!provider.usageSource.endpoint || !provider.usageSource.responseMapping?.windows?.length) {
+                return false;
+            }
+            const windows = provider.usageSource.responseMapping.windows;
+            if (!windows.every((window) => Boolean(window.usedPercentPath || window.remainingPercentPath))) {
+                return false;
+            }
+            const auth = provider.usageSource.auth;
+            if (!auth || auth.type === 'none') {
+                return true;
+            }
+            if (!auth.envName) {
+                return false;
+            }
+            return auth.type !== 'header-env' || Boolean(auth.headerName);
+        }
+        default:
+            return true;
+    }
 }
 function normalizeProviderDefinitions(value) {
     if (!Array.isArray(value) || value.length === 0) {
@@ -367,14 +402,21 @@ function normalizeProviderDefinitions(value) {
             ? raw.modelMatchers.filter((matcher) => typeof matcher === 'string' && matcher.trim().length > 0)
                 .map((matcher) => matcher.trim())
             : [];
+        if (raw.usageSource?.auth && !validateProviderAuthType(raw.usageSource.auth.type)) {
+            continue;
+        }
         const auth = raw.usageSource?.auth && validateProviderAuthType(raw.usageSource.auth.type)
             ? {
                 type: raw.usageSource.auth.type,
-                envName: typeof raw.usageSource.auth.envName === 'string' ? raw.usageSource.auth.envName.trim() : undefined,
-                headerName: typeof raw.usageSource.auth.headerName === 'string' ? raw.usageSource.auth.headerName.trim() : undefined,
+                ...(typeof raw.usageSource.auth.envName === 'string' && raw.usageSource.auth.envName.trim().length > 0
+                    ? { envName: raw.usageSource.auth.envName.trim() }
+                    : {}),
+                ...(typeof raw.usageSource.auth.headerName === 'string' && raw.usageSource.auth.headerName.trim().length > 0
+                    ? { headerName: raw.usageSource.auth.headerName.trim() }
+                    : {}),
             }
             : undefined;
-        providers.push({
+        const provider = {
             id,
             label,
             enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true,
@@ -402,7 +444,10 @@ function normalizeProviderDefinitions(value) {
                     }
                     : {}),
             },
-        });
+        };
+        if (isSemanticallyValidProviderDefinition(provider)) {
+            providers.push(provider);
+        }
     }
     return providers.length > 0
         ? providers

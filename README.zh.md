@@ -147,6 +147,69 @@ Claude Code → stdin JSON → claude-hud → stdout → 在终端中显示
 
 中文 HUD 标签作为显式 opt-in 选项提供。除非你在 `/claude-hud:configure` 中选择 `中文` 或在配置中设置 `language`，否则默认使用英文。
 
+### Provider Definitions
+
+`usage.providerDefinitions` 允许你控制使用率数据源的尝试顺序，以及如何识别非 Claude 会话。
+ClaudeHUD 会按顺序尝试这些 provider，直到其中一个返回可用的 usage 数据。
+
+内置 provider 类型：
+
+- `minimax`：现有的 MiniMax 集成
+- `stdin`：Claude Code 订阅用户的 `rate_limits`
+- `anthropic-oauth`：Anthropic OAuth usage API
+- `external-file`：本地 JSON 快照文件
+- `http-json`：带 JSON 路径映射的自定义 HTTP 接口
+
+最小示例：
+
+```json
+{
+  "usage": {
+    "providerDefinitions": [
+      {
+        "id": "custom-http",
+        "label": "Custom HTTP",
+        "modelMatchers": ["gpt-4.1", "o3"],
+        "usageSource": {
+          "kind": "http-json",
+          "endpoint": "https://example.com/api/usage",
+          "auth": {
+            "type": "bearer-env",
+            "envName": "CUSTOM_USAGE_TOKEN"
+          },
+          "responseMapping": {
+            "planNamePath": "plan.name",
+            "windows": [
+              {
+                "key": "5h",
+                "label": "5h",
+                "remainingPercentPath": "usage.five_hour.remaining",
+                "resetAtPath": "usage.five_hour.reset_at"
+              },
+              {
+                "key": "7d",
+                "label": "7d",
+                "usedPercentPath": "usage.seven_day.used",
+                "resetAtPath": "usage.seven_day.reset_at"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "claude",
+        "label": "Claude",
+        "usageSource": {
+          "kind": "stdin"
+        }
+      }
+    ]
+  }
+}
+```
+
+对于 `http-json` provider，必须提供 `endpoint` 和至少一个映射后的 usage window。每个 window 至少要定义 `usedPercentPath` 或 `remainingPercentPath` 之一。`bearer-env` 认证要求提供 `envName`，`header-env` 则必须同时提供 `envName` 和 `headerName`。
+
 ### 选项
 
 | 选项 | 类型 | 默认值 | 说明 |
@@ -154,7 +217,8 @@ Claude Code → stdin JSON → claude-hud → stdout → 在终端中显示
 | `language` | `en` \| `zh` | `en` | HUD 标签语言。默认为英文；设为 `zh` 启用中文标签 |
 | `lineLayout` | string | `expanded` | 布局：`expanded`（多行）或 `compact`（单行） |
 | `pathLevels` | 1-3 | 1 | 项目路径显示的目录层级数 |
-<<<<<<< HEAD
+| `maxWidth` | number \| `null` | `null` | 仅当终端宽度探测完全失败时使用的可选后备宽度 |
+| `usage.providerDefinitions` | object[] | 内置顺序 | 有序 usage provider 列表。默认依次为 MiniMax、Claude stdin、外部回退 |
 | `elementOrder` | string[] | `["project","context","usage","promptCache","memory","environment","tools","agents","todos"]` | 展开模式下元素的顺序。省略的条目在展开模式下隐藏 |
 | `display.mergeGroups` | string[][] | `[["context","usage"]]` | 展开模式下相邻时应共享一行的元素分组。设为 `[]` 可禁用合并行 |
 | `gitStatus.enabled` | boolean | true | 在 HUD 中显示 git 分支 |
@@ -174,6 +238,8 @@ Claude Code → stdin JSON → claude-hud → stdout → 在终端中显示
 | `display.showSpeed` | boolean | false | 显示输出 Token 速度 `out: 42.1 tok/s` |
 | `display.showUsage` | boolean | true | 显示 Claude 订阅用户的使用率限制（可用时） |
 | `display.usageBarEnabled` | boolean | true | 将使用率显示为可视化进度条而非文本 |
+| `display.usageCompact` | boolean | false | 以更短的文本形式显示使用率，例如 `5h: 25% (1h 30m)`；优先级高于 `display.usageBarEnabled` |
+| `display.showResetLabel` | boolean | true | 在使用率倒计时前显示 `resets in` 前缀 |
 | `display.timeFormat` | `relative` \| `absolute` \| `both` | `relative` | 控制使用率重置时间的显示方式：仅倒计时（`resets in 2h 30m`）、显示墙钟时间（`resets at 14:30`），或同时显示两者（`resets in 2h 30m, at 14:30`） |
 | `display.sevenDayThreshold` | 0-100 | 80 | 当 7 天使用率 ≥ 阈值时显示（0 = 始终显示） |
 | `display.externalUsagePath` | string | `""` | 可选的本地使用率快照文件路径，仅在 stdin `rate_limits` 缺失时使用 |

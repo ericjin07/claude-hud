@@ -309,7 +309,18 @@ test('mergeConfig defaults provider labels to provider ids when omitted', () => 
   const config = mergeConfig({
     usage: {
       providerDefinitions: [
-        { id: 'custom-http', usageSource: { kind: 'http-json', endpoint: 'https://example.test/usage' } },
+        {
+          id: 'custom-http',
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/usage',
+            responseMapping: {
+              windows: [
+                { key: '5h', label: '5h', usedPercentPath: 'usage.five_hour.used' },
+              ],
+            },
+          },
+        },
       ],
     },
   });
@@ -323,6 +334,11 @@ test('mergeConfig defaults provider labels to provider ids when omitted', () => 
       usageSource: {
         kind: 'http-json',
         endpoint: 'https://example.test/usage',
+        responseMapping: {
+          windows: [
+            { key: '5h', label: '5h', usedPercentPath: 'usage.five_hour.used' },
+          ],
+        },
       },
     },
   ]);
@@ -338,6 +354,233 @@ test('mergeConfig falls back to default provider definitions when invalid', () =
   });
 
   assert.deepEqual(config.usage.providerDefinitions, DEFAULT_CONFIG.usage.providerDefinitions);
+});
+
+test('mergeConfig rejects semantically invalid http-json provider definitions', () => {
+  const config = mergeConfig({
+    usage: {
+      providerDefinitions: [
+        {
+          id: 'missing-endpoint',
+          usageSource: {
+            kind: 'http-json',
+            responseMapping: {
+              windows: [
+                { key: '5h', label: '5h', usedPercentPath: 'usage.five_hour.used' },
+              ],
+            },
+          },
+        },
+        {
+          id: 'missing-windows',
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/usage',
+          },
+        },
+        {
+          id: 'missing-window-paths',
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/usage',
+            responseMapping: {
+              windows: [
+                { key: '5h', label: '5h' },
+              ],
+            },
+          },
+        },
+        {
+          id: 'bad-header-auth',
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/usage',
+            auth: { type: 'header-env', envName: 'TOKEN_ONLY' },
+            responseMapping: {
+              windows: [
+                { key: '5h', label: '5h', usedPercentPath: 'usage.five_hour.used' },
+              ],
+            },
+          },
+        },
+        {
+          id: 'bad-bearer-auth',
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/usage',
+            auth: { type: 'bearer-env' },
+            responseMapping: {
+              windows: [
+                { key: '5h', label: '5h', usedPercentPath: 'usage.five_hour.used' },
+              ],
+            },
+          },
+        },
+        {
+          id: 'bad-auth-type',
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/usage',
+            auth: { type: 'bearer' },
+            responseMapping: {
+              windows: [
+                { key: '5h', label: '5h', usedPercentPath: 'usage.five_hour.used' },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(config.usage.providerDefinitions, DEFAULT_CONFIG.usage.providerDefinitions);
+});
+
+test('mergeConfig preserves semantically valid http-json provider definitions', () => {
+  const config = mergeConfig({
+    usage: {
+      providerDefinitions: [
+        {
+          id: 'custom-http',
+          label: 'Custom HTTP',
+          modelMatchers: ['custom-model'],
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/usage',
+            auth: {
+              type: 'header-env',
+              envName: 'CUSTOM_USAGE_TOKEN',
+              headerName: 'x-api-key',
+            },
+            responseMapping: {
+              planNamePath: 'plan.name',
+              windows: [
+                {
+                  key: '5h',
+                  label: '5h',
+                  remainingPercentPath: 'usage.five_hour.remaining',
+                  resetAtPath: 'usage.five_hour.reset_at',
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: 'custom-bearer',
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/bearer',
+            auth: {
+              type: 'bearer-env',
+              envName: 'CUSTOM_BEARER_TOKEN',
+            },
+            responseMapping: {
+              windows: [
+                {
+                  key: '7d',
+                  label: '7d',
+                  usedPercentPath: 'usage.seven_day.used',
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: 'custom-none',
+          usageSource: {
+            kind: 'http-json',
+            endpoint: 'https://example.test/public',
+            auth: {
+              type: 'none',
+            },
+            responseMapping: {
+              windows: [
+                {
+                  key: '5h',
+                  label: '5h',
+                  usedPercentPath: 'usage.five_hour.used',
+                },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(config.usage.providerDefinitions, [
+    {
+      id: 'custom-http',
+      label: 'Custom HTTP',
+      enabled: true,
+      modelMatchers: ['custom-model'],
+      usageSource: {
+        kind: 'http-json',
+        endpoint: 'https://example.test/usage',
+        auth: {
+          type: 'header-env',
+          envName: 'CUSTOM_USAGE_TOKEN',
+          headerName: 'x-api-key',
+        },
+        responseMapping: {
+          planNamePath: 'plan.name',
+          windows: [
+            {
+              key: '5h',
+              label: '5h',
+              remainingPercentPath: 'usage.five_hour.remaining',
+              resetAtPath: 'usage.five_hour.reset_at',
+            },
+          ],
+        },
+      },
+    },
+    {
+      id: 'custom-bearer',
+      label: 'custom-bearer',
+      enabled: true,
+      modelMatchers: [],
+      usageSource: {
+        kind: 'http-json',
+        endpoint: 'https://example.test/bearer',
+        auth: {
+          type: 'bearer-env',
+          envName: 'CUSTOM_BEARER_TOKEN',
+        },
+        responseMapping: {
+          windows: [
+            {
+              key: '7d',
+              label: '7d',
+              usedPercentPath: 'usage.seven_day.used',
+            },
+          ],
+        },
+      },
+    },
+    {
+      id: 'custom-none',
+      label: 'custom-none',
+      enabled: true,
+      modelMatchers: [],
+      usageSource: {
+        kind: 'http-json',
+        endpoint: 'https://example.test/public',
+        auth: {
+          type: 'none',
+        },
+        responseMapping: {
+          windows: [
+            {
+              key: '5h',
+              label: '5h',
+              usedPercentPath: 'usage.five_hour.used',
+            },
+          ],
+        },
+      },
+    },
+  ]);
 });
 
 test('getConfigPath respects CLAUDE_CONFIG_DIR', async () => {

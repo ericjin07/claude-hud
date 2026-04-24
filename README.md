@@ -152,6 +152,69 @@ guided toggles.
 
 Chinese HUD labels are available as an explicit opt-in. English stays the default unless you choose `中文` in `/claude-hud:configure` or set `language` in config.
 
+### Provider Definitions
+
+`usage.providerDefinitions` lets you choose which usage source runs first and how non-Claude sessions are detected.
+Providers are tried in order until one returns usable usage data.
+
+Built-in provider kinds:
+
+- `minimax` for the existing MiniMax integration
+- `stdin` for Claude Code subscriber `rate_limits`
+- `anthropic-oauth` for the Anthropic OAuth usage API
+- `external-file` for a local JSON snapshot file
+- `http-json` for a custom HTTP endpoint with JSON path mapping
+
+Minimal example:
+
+```json
+{
+  "usage": {
+    "providerDefinitions": [
+      {
+        "id": "custom-http",
+        "label": "Custom HTTP",
+        "modelMatchers": ["gpt-4.1", "o3"],
+        "usageSource": {
+          "kind": "http-json",
+          "endpoint": "https://example.com/api/usage",
+          "auth": {
+            "type": "bearer-env",
+            "envName": "CUSTOM_USAGE_TOKEN"
+          },
+          "responseMapping": {
+            "planNamePath": "plan.name",
+            "windows": [
+              {
+                "key": "5h",
+                "label": "5h",
+                "remainingPercentPath": "usage.five_hour.remaining",
+                "resetAtPath": "usage.five_hour.reset_at"
+              },
+              {
+                "key": "7d",
+                "label": "7d",
+                "usedPercentPath": "usage.seven_day.used",
+                "resetAtPath": "usage.seven_day.reset_at"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "claude",
+        "label": "Claude",
+        "usageSource": {
+          "kind": "stdin"
+        }
+      }
+    ]
+  }
+}
+```
+
+For `http-json` providers, `endpoint` and at least one mapped usage window are required. Each window must define either `usedPercentPath` or `remainingPercentPath`. `bearer-env` auth requires `envName`, and `header-env` requires both `envName` and `headerName`.
+
 ### Options
 
 | Option | Type | Default | Description |
@@ -160,7 +223,7 @@ Chinese HUD labels are available as an explicit opt-in. English stays the defaul
 | `lineLayout` | string | `expanded` | Layout: `expanded` (multi-line) or `compact` (single line) |
 | `pathLevels` | 1-3 | 1 | Directory levels to show in project path |
 | `maxWidth` | number \| `null` | `null` | Optional fallback width used only when terminal width detection fails completely |
-<<<<<<< HEAD
+| `usage.providerDefinitions` | object[] | built-in order | Ordered usage providers. Defaults to MiniMax, then Claude stdin, then external fallback. |
 | `elementOrder` | string[] | `["project","context","usage","promptCache","memory","environment","tools","agents","todos"]` | Expanded-mode element order. Omit entries to hide them in expanded mode. |
 | `display.mergeGroups` | string[][] | `[["context","usage"]]` | Expanded-mode groups that should share a line when adjacent. Set `[]` to disable merged lines. |
 | `gitStatus.enabled` | boolean | true | Show git branch in HUD |
