@@ -155,7 +155,7 @@ Chinese HUD labels are available as an explicit opt-in. English stays the defaul
 ### Provider Definitions
 
 `usage.providerDefinitions` lets you choose which usage source runs first and how non-Claude sessions are detected.
-Providers are tried in order until one returns usable usage data.
+Providers are tried in order until one returns usable usage data. Empty `modelMatchers` means "match all models" (catch-all).
 
 Built-in provider kinds:
 
@@ -165,7 +165,82 @@ Built-in provider kinds:
 - `external-file` for a local JSON snapshot file
 - `http-json` for a custom HTTP endpoint with JSON path mapping
 
-Minimal example:
+#### Example: GLM (Zhipu AI)
+
+```json
+{
+  "usage": {
+    "providerDefinitions": [
+      {
+        "id": "glm",
+        "label": "GLM",
+        "modelMatchers": ["glm"],
+        "usageSource": {
+          "kind": "http-json",
+          "endpoint": "https://open.bigmodel.cn/api/usage/v1/quota",
+          "auth": {
+            "type": "bearer-env",
+            "envName": "GLM_API_KEY"
+          },
+          "responseMapping": {
+            "planNamePath": "plan_name",
+            "windows": [
+              {
+                "key": "daily",
+                "label": "daily",
+                "usedPercentPath": "usage.daily.used_percent",
+                "resetAtPath": "usage.daily.reset_at"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "claude",
+        "label": "Claude",
+        "usageSource": { "kind": "stdin" }
+      }
+    ]
+  }
+}
+```
+
+#### Example: MiniMax (built-in adapter)
+
+MiniMax is supported out of the box. The default config already includes it — just set `ANTHROPIC_MODEL` to a MiniMax model name in `.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_MODEL": "MiniMax-M2.7"
+  }
+}
+```
+
+To customize the provider order or disable MiniMax:
+
+```json
+{
+  "usage": {
+    "providerDefinitions": [
+      {
+        "id": "minimax",
+        "label": "MiniMax",
+        "enabled": true,
+        "modelMatchers": ["minimax"],
+        "usageSource": { "kind": "minimax" }
+      },
+      {
+        "id": "claude",
+        "label": "Claude",
+        "usageSource": { "kind": "stdin" }
+      }
+    ]
+  }
+}
+```
+
+#### Example: Generic HTTP provider
 
 ```json
 {
@@ -204,16 +279,14 @@ Minimal example:
       {
         "id": "claude",
         "label": "Claude",
-        "usageSource": {
-          "kind": "stdin"
-        }
+        "usageSource": { "kind": "stdin" }
       }
     ]
   }
 }
 ```
 
-For `http-json` providers, `endpoint` and at least one mapped usage window are required. Each window must define either `usedPercentPath` or `remainingPercentPath`. `bearer-env` auth requires `envName`, and `header-env` requires both `envName` and `headerName`.
+For `http-json` providers, `endpoint` and at least one mapped usage window are required. Each window must define either `usedPercentPath` or `remainingPercentPath`. `bearer-env` auth requires `envName`, and `header-env` requires both `envName` and `headerName`. Only object dot-paths are supported (e.g. `usage.daily.used_percent`); array indexing is not currently supported.
 
 ### Options
 

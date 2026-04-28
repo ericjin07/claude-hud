@@ -150,7 +150,7 @@ Claude Code → stdin JSON → claude-hud → stdout → 在终端中显示
 ### Provider Definitions
 
 `usage.providerDefinitions` 允许你控制使用率数据源的尝试顺序，以及如何识别非 Claude 会话。
-ClaudeHUD 会按顺序尝试这些 provider，直到其中一个返回可用的 usage 数据。
+ClaudeHUD 会按顺序尝试这些 provider，直到其中一个返回可用的 usage 数据。空的 `modelMatchers` 表示"匹配所有模型"（兜底）。
 
 内置 provider 类型：
 
@@ -160,7 +160,82 @@ ClaudeHUD 会按顺序尝试这些 provider，直到其中一个返回可用的 
 - `external-file`：本地 JSON 快照文件
 - `http-json`：带 JSON 路径映射的自定义 HTTP 接口
 
-最小示例：
+#### 示例：GLM（智谱 AI）
+
+```json
+{
+  "usage": {
+    "providerDefinitions": [
+      {
+        "id": "glm",
+        "label": "GLM",
+        "modelMatchers": ["glm"],
+        "usageSource": {
+          "kind": "http-json",
+          "endpoint": "https://open.bigmodel.cn/api/usage/v1/quota",
+          "auth": {
+            "type": "bearer-env",
+            "envName": "GLM_API_KEY"
+          },
+          "responseMapping": {
+            "planNamePath": "plan_name",
+            "windows": [
+              {
+                "key": "daily",
+                "label": "daily",
+                "usedPercentPath": "usage.daily.used_percent",
+                "resetAtPath": "usage.daily.reset_at"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "claude",
+        "label": "Claude",
+        "usageSource": { "kind": "stdin" }
+      }
+    ]
+  }
+}
+```
+
+#### 示例：MiniMax（内置 adapter）
+
+MiniMax 开箱即用。默认配置已包含 MiniMax provider——只需在 `.claude/settings.json` 中将 `ANTHROPIC_MODEL` 设为 MiniMax 模型名即可：
+
+```json
+{
+  "env": {
+    "ANTHROPIC_MODEL": "MiniMax-M2.7"
+  }
+}
+```
+
+如需自定义 provider 顺序或禁用 MiniMax：
+
+```json
+{
+  "usage": {
+    "providerDefinitions": [
+      {
+        "id": "minimax",
+        "label": "MiniMax",
+        "enabled": true,
+        "modelMatchers": ["minimax"],
+        "usageSource": { "kind": "minimax" }
+      },
+      {
+        "id": "claude",
+        "label": "Claude",
+        "usageSource": { "kind": "stdin" }
+      }
+    ]
+  }
+}
+```
+
+#### 示例：通用 HTTP provider
 
 ```json
 {
@@ -199,16 +274,14 @@ ClaudeHUD 会按顺序尝试这些 provider，直到其中一个返回可用的 
       {
         "id": "claude",
         "label": "Claude",
-        "usageSource": {
-          "kind": "stdin"
-        }
+        "usageSource": { "kind": "stdin" }
       }
     ]
   }
 }
 ```
 
-对于 `http-json` provider，必须提供 `endpoint` 和至少一个映射后的 usage window。每个 window 至少要定义 `usedPercentPath` 或 `remainingPercentPath` 之一。`bearer-env` 认证要求提供 `envName`，`header-env` 则必须同时提供 `envName` 和 `headerName`。
+对于 `http-json` provider，必须提供 `endpoint` 和至少一个映射后的 usage window。每个 window 至少要定义 `usedPercentPath` 或 `remainingPercentPath` 之一。`bearer-env` 认证要求提供 `envName`，`header-env` 则必须同时提供 `envName` 和 `headerName`。仅支持对象点路径（如 `usage.daily.used_percent`），暂不支持数组下标。
 
 ### 选项
 
