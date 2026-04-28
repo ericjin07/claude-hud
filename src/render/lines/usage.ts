@@ -1,5 +1,5 @@
-import type { RenderContext } from '../../types.js';
-import { isLimitReached, toNormalizedUsageData } from '../../types.js';
+import type { RenderContext, NormalizedUsageData } from '../../types.js';
+import { isLimitReached } from '../../types.js';
 import type { MessageKey } from '../../i18n/types.js';
 import { getProviderLabel } from '../../stdin.js';
 import { critical, warning, label, getQuotaColor, quotaBar, RESET } from '../colors.js';
@@ -33,12 +33,13 @@ export function renderUsageLine(
   const showResetLabel = display?.showResetLabel ?? true;
   const resetsKey = timeFormat === 'absolute' ? 'format.resets' : 'format.resetsIn';
   const usageCompact = display?.usageCompact ?? false;
-  const normalizedUsage = toNormalizedUsageData(ctx.usageData);
+  const normalizedUsage: NormalizedUsageData = ctx.usageData;
   const fiveHourWindow = normalizedUsage.windows.find((window) => window.key === '5h') ?? null;
   const sevenDayWindow = normalizedUsage.windows.find((window) => window.key === '7d') ?? null;
   const primaryWindow = normalizedUsage.windows[0] ?? null;
+  const hasSingleWindow = normalizedUsage.windows.length === 1;
 
-  if (normalizedUsage.apiUnavailable && normalizedUsage.providerId === 'minimax') {
+  if (normalizedUsage.apiUnavailable) {
     const errorHint = formatUsageError(normalizedUsage.apiError);
     return `${usageLabel} ${warning(`⚠${errorHint}`, colors)}`;
   }
@@ -61,7 +62,8 @@ export function renderUsageLine(
 
   const threshold = display?.usageThreshold ?? 0;
 
-  if (normalizedUsage.providerId === 'minimax') {
+  // Single-window providers (e.g. MiniMax, GLM, or any custom http-json with one window)
+  if (hasSingleWindow) {
     const usedPercent = primaryWindow?.usedPercent ?? null;
     const resetAt = primaryWindow?.resetAt ?? null;
     if (usedPercent === null || usedPercent < threshold) {
@@ -69,13 +71,13 @@ export function renderUsageLine(
     }
 
     if (usageCompact) {
-      return formatCompactWindowPart('5h', usedPercent, resetAt, timeFormat, colors);
+      return formatCompactWindowPart(primaryWindow!.label, usedPercent, resetAt, timeFormat, colors);
     }
 
     const usageBarEnabled = display?.usageBarEnabled ?? true;
     const barWidth = getAdaptiveBarWidth();
-    const minimaxPart = formatUsageWindowPart({
-      label: '5h',
+    const windowPart = formatUsageWindowPart({
+      label: primaryWindow!.label,
       percent: usedPercent,
       resetAt,
       colors,
@@ -84,9 +86,10 @@ export function renderUsageLine(
       timeFormat,
       showResetLabel,
     });
-    return `${usageLabel} ${minimaxPart}`;
+    return `${usageLabel} ${windowPart}`;
   }
 
+  // Multi-window providers (e.g. Claude with 5h + 7d)
   const fiveHour = fiveHourWindow?.usedPercent ?? null;
   const sevenDay = sevenDayWindow?.usedPercent ?? null;
   const effectiveUsage = Math.max(fiveHour ?? 0, sevenDay ?? 0);

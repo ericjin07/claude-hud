@@ -3,6 +3,22 @@ import assert from 'node:assert/strict';
 import { render } from '../dist/render/index.js';
 import { setLanguage } from '../dist/i18n/index.js';
 
+/** Convert old UsageData format to NormalizedUsageData for tests */
+function makeUsage({ planName = null, fiveHour = null, sevenDay = null, fiveHourResetAt = null, sevenDayResetAt = null, apiUnavailable, apiError } = {}) {
+  const result = {
+    providerId: 'claude',
+    providerLabel: 'Claude',
+    planName,
+    windows: [
+      { key: '5h', label: '5h', usedPercent: fiveHour, resetAt: fiveHourResetAt },
+      { key: '7d', label: '7d', usedPercent: sevenDay, resetAt: sevenDayResetAt },
+    ],
+  };
+  if (apiUnavailable !== undefined) result.apiUnavailable = apiUnavailable;
+  if (apiError !== undefined) result.apiError = apiError;
+  return result;
+}
+
 function baseContext() {
   return {
     stdin: {
@@ -135,13 +151,7 @@ test('render wraps long lines to terminal width and keeps all activity lines vis
   ctx.claudeMdCount = 1;
   ctx.rulesCount = 2;
   ctx.hooksCount = 3;
-  ctx.usageData = {
-    planName: 'Team',
-    fiveHour: 30,
-    sevenDay: 3,
-    fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Team', fiveHour: 30, sevenDay: 3, fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000) });
   ctx.transcript.tools = [
     { id: 'tool-1', name: 'Read', status: 'completed', startTime: new Date(0), endTime: new Date(0), duration: 0 },
   ];
@@ -292,13 +302,7 @@ test('render does not wrap when no real terminal width is available', () => {
     fileStats: { modified: 2, added: 1, deleted: 0, untracked: 1 },
   };
   ctx.config.gitStatus.showFileStats = true;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 42,
-    sevenDay: 12,
-    fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 42, sevenDay: 12, fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
 
   const originalEnvColumns = process.env.COLUMNS;
   let lines = [];
@@ -328,12 +332,7 @@ test('render uses config.maxWidth as fallback when terminal width is unavailable
   ctx.stdin.model = { display_name: 'Sonnet 4.6' };
   ctx.stdin.cwd = '/tmp/very-long-project-name-for-maxwidth-fallback';
   ctx.config.maxWidth = 30;
-  ctx.usageData = {
-    fiveHour: 42,
-    sevenDay: null,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ fiveHour: 42 });
 
   // When no terminal size is available, maxWidth should be used as fallback
   const originalEnvColumns = process.env.COLUMNS;
@@ -383,13 +382,7 @@ test('render does not strand a bare 5h continuation line in compact mode', () =>
   ctx.config.display.usageBarEnabled = false;
   ctx.config.display.showConfigCounts = false;
   ctx.stdin.cwd = '/tmp/project';
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 30,
-    sevenDay: 85,
-    fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 28 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 30, sevenDay: 85, fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 28 * 60 * 60 * 1000) });
 
   let lines = [];
   withColumns(process.stdout, undefined, () => {
@@ -489,12 +482,7 @@ test('render keeps default merge-group elements as separate lines when a narrow 
   ctx.config.lineLayout = 'expanded';
   ctx.config.display.usageBarEnabled = true;
   ctx.stdin.context_window.current_usage.input_tokens = 120000;
-  ctx.usageData = {
-    fiveHour: 62,
-    sevenDay: null,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ fiveHour: 62 });
 
   let lines = [];
   withTerminal(24, () => {
@@ -509,13 +497,7 @@ test('render keeps default merge-group elements as separate lines when a narrow 
 test('render respects terminal width with Chinese labels enabled', () => {
   const ctx = baseContext();
   ctx.config.lineLayout = 'expanded';
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 42,
-    sevenDay: 12,
-    fiveHourResetAt: new Date(Date.now() + 90 * 60000),
-    sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 42, sevenDay: 12, fiveHourResetAt: new Date(Date.now() + 90 * 60000), sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60000) });
 
   let lines = [];
   setLanguage('zh');

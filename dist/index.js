@@ -97,14 +97,16 @@ function normalizeRuntimeProviderDefinition(provider) {
     };
 }
 function modelMatchesProvider(provider, sessionSignals, configuredModel) {
+    // Empty matchers = catch-all provider (matches any model)
     if (provider.modelMatchers.length === 0) {
         return true;
     }
     const signalsToCheck = sessionSignals.length > 0
         ? sessionSignals
         : (configuredModel ? [configuredModel] : []);
+    // No model signals available — only catch-all providers can match
     if (signalsToCheck.length === 0) {
-        return provider.usageSource.kind === 'minimax';
+        return false;
     }
     return provider.modelMatchers.some((matcher) => {
         const normalizedMatcher = matcher.toLowerCase();

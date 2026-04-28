@@ -25,6 +25,22 @@ function stripAnsi(str) {
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
 }
 
+/** Convert old UsageData format to NormalizedUsageData for tests */
+function makeUsage({ planName = null, fiveHour = null, sevenDay = null, fiveHourResetAt = null, sevenDayResetAt = null, apiUnavailable, apiError } = {}) {
+  const result = {
+    providerId: 'claude',
+    providerLabel: 'Claude',
+    planName,
+    windows: [
+      { key: '5h', label: '5h', usedPercent: fiveHour, resetAt: fiveHourResetAt },
+      { key: '7d', label: '7d', usedPercent: sevenDay, resetAt: sevenDayResetAt },
+    ],
+  };
+  if (apiUnavailable !== undefined) result.apiUnavailable = apiUnavailable;
+  if (apiError !== undefined) result.apiError = apiError;
+  return result;
+}
+
 function baseContext() {
   return {
     stdin: {
@@ -558,12 +574,7 @@ test('label color overrides apply across shared secondary text surfaces', () => 
   ctx.claudeMdCount = 2;
   ctx.rulesCount = 1;
   ctx.gitStatus = { branch: 'main', isDirty: false, ahead: 0, behind: 0 };
-  ctx.usageData = {
-    fiveHour: 25,
-    sevenDay: null,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ fiveHour: 25 });
   ctx.memoryUsage = {
     totalBytes: 1000,
     usedBytes: 500,
@@ -1045,13 +1056,7 @@ test('renderToolsLine returns null when no tools exist', () => {
 // Usage display tests
 test('renderSessionLine does not add a synthetic subscriber label from usageData', () => {
   const ctx = baseContext();
-  ctx.usageData = {
-    planName: 'Max',
-    fiveHour: 23,
-    sevenDay: 45,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Max', fiveHour: 23, sevenDay: 45 });
   const line = renderSessionLine(ctx);
   assert.ok(line.includes('Opus'), 'should include model name');
   assert.ok(!line.includes('Max'), 'should not include plan name derived outside stdin');
@@ -1059,13 +1064,7 @@ test('renderSessionLine does not add a synthetic subscriber label from usageData
 
 test('renderSessionLine does not guess API auth from environment variables alone', () => {
   const ctx = baseContext();
-  ctx.usageData = {
-    planName: 'Max',
-    fiveHour: 23,
-    sevenDay: 45,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Max', fiveHour: 23, sevenDay: 45 });
   const savedApiKey = process.env.ANTHROPIC_API_KEY;
   process.env.ANTHROPIC_API_KEY = 'test-key';
 
@@ -1084,13 +1083,7 @@ test('renderSessionLine does not guess API auth from environment variables alone
 
 test('renderProjectLine does not guess API auth from environment variables alone', () => {
   const ctx = baseContext();
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 10,
-    sevenDay: 20,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 10, sevenDay: 20 });
   const savedApiKey = process.env.ANTHROPIC_API_KEY;
   process.env.ANTHROPIC_API_KEY = 'test-key';
 
@@ -1120,13 +1113,7 @@ test('renderIdentityLine translates labels when Chinese is enabled', () => {
 
 test('renderUsageLine translates labels when Chinese is enabled', () => {
   const ctx = baseContext();
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 25,
-    sevenDay: 10,
-    fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 25, sevenDay: 10, fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000) });
 
   setLanguage('zh');
   try {
@@ -1143,13 +1130,7 @@ test('renderSessionLine shows Bedrock label and hides usage for bedrock model id
   try {
     const ctx = baseContext();
     ctx.stdin.model = { display_name: 'Sonnet', id: 'anthropic.claude-3-5-sonnet-20240620-v1:0' };
-    ctx.usageData = {
-      planName: 'Max',
-      fiveHour: 23,
-      sevenDay: 45,
-      fiveHourResetAt: null,
-      sevenDayResetAt: null,
-    };
+    ctx.usageData = makeUsage({ planName: 'Max', fiveHour: 23, sevenDay: 45 });
     const line = renderSessionLine(ctx);
     assert.ok(line.includes('Sonnet'), 'should include model name');
     assert.ok(line.includes('Bedrock'), 'should include Bedrock label');
@@ -1162,13 +1143,7 @@ test('renderSessionLine shows Bedrock label and hides usage for bedrock model id
 test('renderSessionLine displays usage percentages (7d hidden when low)', () => {
   const ctx = baseContext();
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 6,
-    sevenDay: 13,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 6, sevenDay: 13 });
   const line = renderSessionLine(ctx);
   assert.ok(line.includes('5h'), 'should include 5h label');
   assert.ok(!line.includes('Weekly'), 'should NOT include 7d when below 80%');
@@ -1178,13 +1153,7 @@ test('renderSessionLine displays usage percentages (7d hidden when low)', () => 
 test('renderSessionLine shows 7d when approaching limit (>=80%)', () => {
   const ctx = baseContext();
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 85,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 85 });
   const line = renderSessionLine(ctx);
   assert.ok(line.includes('5h'), 'should include 5h label');
   assert.ok(line.includes('Weekly'), 'should include 7d when >= 80%');
@@ -1196,13 +1165,7 @@ test('renderSessionLine shows 7d reset countdown in text-only mode', () => {
   const resetTime = new Date(Date.now() + (28 * 60 * 60 * 1000)); // 1d 4h from now
   ctx.config.display.sevenDayThreshold = 80;
   ctx.config.display.usageBarEnabled = false;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 85,
-    fiveHourResetAt: null,
-    sevenDayResetAt: resetTime,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 85, sevenDayResetAt: resetTime });
 
   const line = stripAnsi(renderSessionLine(ctx));
   assert.ok(line.includes('Weekly 85%'), `should include 7d label and percentage: ${line}`);
@@ -1212,13 +1175,7 @@ test('renderSessionLine shows 7d reset countdown in text-only mode', () => {
 test('renderSessionLine respects sevenDayThreshold override', () => {
   const ctx = baseContext();
   ctx.config.display.sevenDayThreshold = 0;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 10,
-    sevenDay: 5,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 10, sevenDay: 5 });
 
   const line = renderSessionLine(ctx);
   assert.ok(line.includes('Weekly'), 'should include 7d when threshold is 0');
@@ -1227,13 +1184,7 @@ test('renderSessionLine respects sevenDayThreshold override', () => {
 test('renderSessionLine shows weekly-only usage without a ghost 5h section', () => {
   const ctx = baseContext();
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: null,
-    sevenDay: 13,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', sevenDay: 13 });
 
   const line = stripAnsi(renderSessionLine(ctx));
   assert.ok(!line.includes('5h'), `should not render a ghost 5h section: ${line}`);
@@ -1244,13 +1195,7 @@ test('renderSessionLine shows weekly-only usage without a ghost 5h section', () 
 test('renderSessionLine shows 5hr reset countdown', () => {
   const ctx = baseContext();
   const resetTime = new Date(Date.now() + 7200000); // 2 hours from now
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 20,
-    fiveHourResetAt: resetTime,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 20, fiveHourResetAt: resetTime });
   const line = renderSessionLine(ctx);
   assert.ok(line.includes('5h'), 'should include 5h label');
   assert.ok(line.includes('2h'), 'should include reset countdown');
@@ -1260,13 +1205,7 @@ test('renderUsageLine shows reset countdown in days when >= 24 hours', () => {
   const ctx = baseContext();
   const resetTime = new Date(Date.now() + (151 * 3600000) + (59 * 60000)); // 6d 7h 59m from now
   ctx.config.display.usageBarEnabled = true;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 20,
-    fiveHourResetAt: resetTime,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 20, fiveHourResetAt: resetTime });
   const line = renderUsageLine(ctx);
   assert.ok(line, 'should render usage line');
   const plain = stripAnsi(line);
@@ -1279,13 +1218,7 @@ test('renderUsageLine shows 7d reset countdown in text-only mode', () => {
   const resetTime = new Date(Date.now() + (28 * 60 * 60 * 1000)); // 1d 4h from now
   ctx.config.display.usageBarEnabled = false;
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 85,
-    fiveHourResetAt: null,
-    sevenDayResetAt: resetTime,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 85, sevenDayResetAt: resetTime });
 
   const line = stripAnsi(renderUsageLine(ctx));
   assert.ok(line.includes('5h 45%'), `should include 5h text-only usage: ${line}`);
@@ -1299,13 +1232,7 @@ test('renderUsageLine can hide reset label in text-only mode', () => {
   ctx.config.display.usageBarEnabled = false;
   ctx.config.display.showResetLabel = false;
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 85,
-    fiveHourResetAt: null,
-    sevenDayResetAt: resetTime,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 85, sevenDayResetAt: resetTime });
 
   const line = stripAnsi(renderUsageLine(ctx));
   assert.ok(line.includes('(1d 4h)'), `should include bare countdown when reset label is hidden: ${line}`);
@@ -1315,13 +1242,7 @@ test('renderUsageLine can hide reset label in text-only mode', () => {
 test('renderUsageLine translates weekly label when Chinese is enabled', () => {
   const ctx = baseContext();
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 85,
-    fiveHourResetAt: null,
-    sevenDayResetAt: new Date(Date.now() + (28 * 60 * 60 * 1000)),
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 85, sevenDayResetAt: new Date(Date.now() + (28 * 60 * 60 * 1000)) });
 
   setLanguage('zh');
   try {
@@ -1338,13 +1259,7 @@ test('renderUsageLine shows 7d reset countdown in bar mode when above threshold'
   const resetTime = new Date(Date.now() + (28 * 60 * 60 * 1000)); // 1d 4h from now
   ctx.config.display.usageBarEnabled = true;
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 85,
-    fiveHourResetAt: null,
-    sevenDayResetAt: resetTime,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 85, sevenDayResetAt: resetTime });
 
   const line = stripAnsi(renderUsageLine(ctx));
   assert.ok(line.includes('45%'), `should include 5h percentage in bar mode: ${line}`);
@@ -1359,13 +1274,7 @@ test('renderUsageLine can hide reset label in bar mode', () => {
   ctx.config.display.usageBarEnabled = true;
   ctx.config.display.showResetLabel = false;
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 85,
-    fiveHourResetAt: null,
-    sevenDayResetAt: resetTime,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 85, sevenDayResetAt: resetTime });
 
   const line = stripAnsi(renderUsageLine(ctx));
   assert.ok(line.includes('(1d 4h)'), `should include bare countdown in bar mode: ${line}`);
@@ -1375,13 +1284,7 @@ test('renderUsageLine can hide reset label in bar mode', () => {
 test('renderUsageLine shows weekly-only usage without a ghost 5h section', () => {
   const ctx = baseContext();
   ctx.config.display.sevenDayThreshold = 80;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: null,
-    sevenDay: 13,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', sevenDay: 13 });
 
   const line = stripAnsi(renderUsageLine(ctx));
   assert.ok(line.includes('Usage'), `should render usage line: ${line}`);
@@ -1394,13 +1297,7 @@ test('renderUsageLine shows weekly-only usage without a ghost 5h section', () =>
 test('renderSessionLine displays limit reached warning', () => {
   const ctx = baseContext();
   const resetTime = new Date(Date.now() + 3600000); // 1 hour from now
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 100,
-    sevenDay: 45,
-    fiveHourResetAt: resetTime,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 100, sevenDay: 45, fiveHourResetAt: resetTime });
   const line = renderSessionLine(ctx);
   assert.ok(line.includes('Limit reached'), 'should show limit reached');
   assert.ok(line.includes('resets'), 'should show reset time');
@@ -1409,13 +1306,7 @@ test('renderSessionLine displays limit reached warning', () => {
 test('renderUsageLine shows limit reset in days when >= 24 hours', () => {
   const ctx = baseContext();
   const resetTime = new Date(Date.now() + (151 * 3600000) + (59 * 60000)); // 6d 7h 59m from now
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 100,
-    sevenDay: 45,
-    fiveHourResetAt: resetTime,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 100, sevenDay: 45, fiveHourResetAt: resetTime });
   const line = renderUsageLine(ctx);
   assert.ok(line, 'should render usage line');
   const plain = stripAnsi(line);
@@ -1426,13 +1317,7 @@ test('renderUsageLine shows limit reset in days when >= 24 hours', () => {
 
 test('renderSessionLine displays -- for null usage values', () => {
   const ctx = baseContext();
-  ctx.usageData = {
-    planName: 'Max',
-    fiveHour: null,
-    sevenDay: null,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Max' });
   const line = renderSessionLine(ctx);
   assert.ok(line.includes('5h'), 'should include 5h label');
   assert.ok(line.includes('--'), 'should show -- for null values');
@@ -1455,13 +1340,7 @@ test('renderSessionLine uses custom critical colors for limit-reached usage stat
     usageWarning: 'brightMagenta',
     critical: 'magenta',
   };
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 100,
-    sevenDay: 45,
-    fiveHourResetAt: new Date(Date.now() + 3600000),
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 100, sevenDay: 45, fiveHourResetAt: new Date(Date.now() + 3600000) });
 
   const criticalLine = renderSessionLine(ctx);
   assert.ok(criticalLine.includes('\x1b[35m⚠ Limit reached'), `expected custom critical color, got: ${JSON.stringify(criticalLine)}`);
@@ -1477,13 +1356,7 @@ test('renderUsageLine uses custom usage palette overrides', () => {
     usageWarning: 'magenta',
     critical: 'red',
   };
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 25,
-    sevenDay: 80,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 25, sevenDay: 80 });
 
   const line = withTerminal(120, () => renderUsageLine(ctx));
   assert.ok(line, 'should render usage line');
@@ -1495,13 +1368,7 @@ test('renderUsageLine uses custom usage palette overrides', () => {
 
 test('renderSessionLine hides usage when showUsage config is false (hybrid toggle)', () => {
   const ctx = baseContext();
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 25,
-    sevenDay: 10,
-    fiveHourResetAt: null,
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 25, sevenDay: 10 });
   // Even with usageData present, setting showUsage to false should hide it
   ctx.config.display.showUsage = false;
   const line = renderSessionLine(ctx);
@@ -1763,13 +1630,7 @@ test('render expanded layout honors custom elementOrder including activity place
   const ctx = baseContext();
   ctx.config.lineLayout = 'expanded';
   ctx.stdin.cwd = '/tmp/my-project';
-  ctx.usageData = {
-    planName: 'Team',
-    fiveHour: 30,
-    sevenDay: 10,
-    fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Team', fiveHour: 30, sevenDay: 10, fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
   ctx.memoryUsage = {
     totalBytes: 16 * 1024 ** 3,
     usedBytes: 10 * 1024 ** 3,
@@ -1816,13 +1677,7 @@ test('render expanded layout omits elements not present in elementOrder', () => 
   const ctx = baseContext();
   ctx.config.lineLayout = 'expanded';
   ctx.stdin.cwd = '/tmp/my-project';
-  ctx.usageData = {
-    planName: 'Team',
-    fiveHour: 30,
-    sevenDay: 10,
-    fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Team', fiveHour: 30, sevenDay: 10, fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
   ctx.memoryUsage = {
     totalBytes: 16 * 1024 ** 3,
     usedBytes: 10 * 1024 ** 3,
@@ -1857,13 +1712,7 @@ test('render expanded layout omits elements not present in elementOrder', () => 
 test('render expanded layout combines default merge-group elements when adjacent in elementOrder', () => {
   const ctx = baseContext();
   ctx.config.lineLayout = 'expanded';
-  ctx.usageData = {
-    planName: 'Team',
-    fiveHour: 30,
-    sevenDay: 10,
-    fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Team', fiveHour: 30, sevenDay: 10, fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
   ctx.config.elementOrder = ['usage', 'context'];
 
   const lines = withTerminal(120, () => captureRenderLines(ctx));
@@ -1882,13 +1731,7 @@ test('render expanded layout keeps merge-group elements separate when they are n
   const ctx = baseContext();
   ctx.config.lineLayout = 'expanded';
   ctx.stdin.cwd = '/tmp/my-project';
-  ctx.usageData = {
-    planName: 'Team',
-    fiveHour: 30,
-    sevenDay: 10,
-    fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Team', fiveHour: 30, sevenDay: 10, fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
   ctx.config.elementOrder = ['usage', 'project', 'context'];
 
   const lines = captureRenderLines(ctx);
@@ -1904,13 +1747,7 @@ test('render expanded layout keeps merge-group elements separate when they are n
 test('render expanded layout keeps default merge-group elements separate when mergeGroups is empty', () => {
   const ctx = baseContext();
   ctx.config.lineLayout = 'expanded';
-  ctx.usageData = {
-    planName: 'Team',
-    fiveHour: 30,
-    sevenDay: 10,
-    fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Team', fiveHour: 30, sevenDay: 10, fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
   ctx.config.display.mergeGroups = [];
   ctx.config.elementOrder = ['usage', 'context'];
 
@@ -1926,13 +1763,7 @@ test('render expanded layout combines custom merge groups in configured order', 
   const ctx = baseContext();
   ctx.config.lineLayout = 'expanded';
   ctx.stdin.cwd = '/tmp/my-project';
-  ctx.usageData = {
-    planName: 'Team',
-    fiveHour: 30,
-    sevenDay: 10,
-    fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Team', fiveHour: 30, sevenDay: 10, fiveHourResetAt: new Date(Date.now() + 60 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
   ctx.config.display.mergeGroups = [['project', 'usage', 'context']];
   ctx.config.elementOrder = ['project', 'usage', 'context'];
 
@@ -1948,13 +1779,7 @@ test('render expanded layout combines custom merge groups in configured order', 
 test('render expanded layout aligns progress labels only after wrapping merged lines to separate lines', () => {
   const ctx = baseContext();
   ctx.config.lineLayout = 'expanded';
-  ctx.usageData = {
-    planName: 'Team',
-    fiveHour: 45,
-    sevenDay: 85,
-    fiveHourResetAt: new Date(Date.now() + 90 * 60 * 1000),
-    sevenDayResetAt: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000),
-  };
+  ctx.usageData = makeUsage({ planName: 'Team', fiveHour: 45, sevenDay: 85, fiveHourResetAt: new Date(Date.now() + 90 * 60 * 1000), sevenDayResetAt: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000) });
   ctx.config.elementOrder = ['usage', 'context'];
 
   const lines = withTerminal(24, () => captureRenderLines(ctx)).map(stripAnsi);
@@ -2132,13 +1957,7 @@ test('renderSessionLine includes compact session token summary when enabled', ()
 test('renderUsageLine uses "resets in" preposition for default relative mode in bar-mode', () => {
   const ctx = baseContext();
   ctx.config.display.usageBarEnabled = true;
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 20,
-    fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 20, fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000) });
   const plain = stripAnsi(renderUsageLine(ctx));
   assert.ok(plain.includes('resets in'), `should use "resets in" for relative mode, got: ${plain}`);
 });
@@ -2147,13 +1966,7 @@ test('renderUsageLine uses "resets at" when timeFormat is "absolute" (bar mode)'
   const ctx = baseContext();
   ctx.config.display.usageBarEnabled = true;
   ctx.config.display.timeFormat = 'absolute';
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 20,
-    fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 20, fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000) });
   const plain = stripAnsi(renderUsageLine(ctx));
   assert.ok(plain.includes('resets at'), `expected "resets at" in absolute bar mode, got: ${plain}`);
   assert.ok(!plain.includes('resets in'), `should not say "resets in" for absolute mode, got: ${plain}`);
@@ -2163,13 +1976,7 @@ test('renderUsageLine shows relative and absolute time when timeFormat is "both"
   const ctx = baseContext();
   ctx.config.display.usageBarEnabled = false;
   ctx.config.display.timeFormat = 'both';
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 45,
-    sevenDay: 20,
-    fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000 + 30 * 60 * 1000),
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 45, sevenDay: 20, fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000 + 30 * 60 * 1000) });
   const plain = stripAnsi(renderUsageLine(ctx));
   // "both" produces "Xh Ym, at HH:MM" — must contain relative part and " at " from i18n
   assert.match(plain, /\dh/, 'should contain relative duration hours');
@@ -2179,13 +1986,7 @@ test('renderUsageLine shows relative and absolute time when timeFormat is "both"
 
 test('renderUsageLine limit-reached uses "resets in" for default relative mode', () => {
   const ctx = baseContext();
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 100,
-    sevenDay: 45,
-    fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 100, sevenDay: 45, fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000) });
   const plain = stripAnsi(renderUsageLine(ctx));
   assert.ok(plain.includes('Limit reached'), 'should show limit reached');
   assert.ok(plain.includes('resets in'), `should use "resets in" preposition for relative mode, got: ${plain}`);
@@ -2194,13 +1995,7 @@ test('renderUsageLine limit-reached uses "resets in" for default relative mode',
 test('renderUsageLine limit-reached uses "resets at" for absolute timeFormat', () => {
   const ctx = baseContext();
   ctx.config.display.timeFormat = 'absolute';
-  ctx.usageData = {
-    planName: 'Pro',
-    fiveHour: 100,
-    sevenDay: 45,
-    fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-    sevenDayResetAt: null,
-  };
+  ctx.usageData = makeUsage({ planName: 'Pro', fiveHour: 100, sevenDay: 45, fiveHourResetAt: new Date(Date.now() + 2 * 60 * 60 * 1000) });
   const plain = stripAnsi(renderUsageLine(ctx));
   assert.ok(plain.includes('Limit reached'), 'should show limit reached');
   assert.ok(plain.includes('resets at'), `should use "resets at" for absolute mode, got: ${plain}`);

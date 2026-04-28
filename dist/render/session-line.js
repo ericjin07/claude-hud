@@ -1,4 +1,4 @@
-import { isLimitReached, toNormalizedUsageData } from '../types.js';
+import { isLimitReached } from '../types.js';
 import { getContextPercent, getBufferedPercent, getModelName, formatModelName, getProviderLabel, getTotalTokens } from '../stdin.js';
 import { getOutputSpeed } from '../speed-tracker.js';
 import { coloredBar, critical, warning, git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, getContextColor, getQuotaColor, quotaBar, custom as customColor, RESET } from './colors.js';
@@ -139,13 +139,14 @@ export function renderSessionLine(ctx) {
     }
     // Usage limits display (shown when enabled in config, respects usageThreshold)
     if (display?.showUsage !== false && ctx.usageData && !providerLabel) {
-        const usageData = toNormalizedUsageData(ctx.usageData);
+        const usageData = ctx.usageData;
         const fiveHourWindow = usageData.windows.find((window) => window.key === '5h') ?? null;
         const sevenDayWindow = usageData.windows.find((window) => window.key === '7d') ?? null;
         const primaryWindow = usageData.windows[0] ?? null;
+        const hasSingleWindow = usageData.windows.length === 1;
         const usageCompact = display?.usageCompact ?? false;
         const showResetLabel = display?.showResetLabel ?? true;
-        if (usageData.apiUnavailable && usageData.providerId === 'minimax') {
+        if (usageData.apiUnavailable) {
             const errorHint = formatUsageError(usageData.apiError);
             parts.push(warning(`usage: ⚠${errorHint}`, colors));
         }
@@ -166,17 +167,18 @@ export function renderSessionLine(ctx) {
         }
         else {
             const usageThreshold = display?.usageThreshold ?? 0;
-            if (usageData.providerId === 'minimax') {
+            // Single-window providers (e.g. MiniMax, GLM, or any custom http-json with one window)
+            if (hasSingleWindow) {
                 const usedPercent = primaryWindow?.usedPercent ?? null;
                 const resetAt = primaryWindow?.resetAt ?? null;
                 if (usedPercent !== null && usedPercent >= usageThreshold) {
                     if (usageCompact) {
-                        parts.push(formatCompactWindowPart('5h', usedPercent, resetAt, timeFormat, colors));
+                        parts.push(formatCompactWindowPart(primaryWindow.label, usedPercent, resetAt, timeFormat, colors));
                     }
                     else {
                         const usageBarEnabled = display?.usageBarEnabled ?? true;
-                        const minimaxPart = formatUsageWindowPart({
-                            label: '5h',
+                        const windowPart = formatUsageWindowPart({
+                            label: primaryWindow.label,
                             percent: usedPercent,
                             resetAt,
                             colors,
@@ -185,11 +187,12 @@ export function renderSessionLine(ctx) {
                             timeFormat,
                             showResetLabel,
                         });
-                        parts.push(`${label(t('label.usage'), colors)} ${minimaxPart}`);
+                        parts.push(`${label(t('label.usage'), colors)} ${windowPart}`);
                     }
                 }
             }
             else {
+                // Multi-window providers (e.g. Claude with 5h + 7d)
                 const fiveHour = fiveHourWindow?.usedPercent ?? null;
                 const sevenDay = sevenDayWindow?.usedPercent ?? null;
                 const effectiveUsage = Math.max(fiveHour ?? 0, sevenDay ?? 0);

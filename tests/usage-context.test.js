@@ -27,6 +27,7 @@ test("resolveUsageContext prefers MiniMax and normalizes to usage windows", asyn
     stdin: { rate_limits: null },
     config: makeConfig(),
     now: () => Date.UTC(2026, 3, 22, 10, 0, 0),
+    getConfiguredModel: () => "MiniMax-M2.7",
     getMiniMaxUsage: async () => ({
       planName: "MiniMax",
       utilization: 45,
@@ -147,6 +148,7 @@ test("resolveUsageContext preserves API status fields for MiniMax results", asyn
     stdin: { rate_limits: null },
     config: makeConfig(),
     now: () => Date.UTC(2026, 3, 22, 10, 0, 0),
+    getConfiguredModel: () => "MiniMax-M2.7",
     getMiniMaxUsage: async () => ({
       planName: "MiniMax",
       utilization: 100,

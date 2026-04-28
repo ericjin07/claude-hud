@@ -171,6 +171,7 @@ function modelMatchesProvider(
   sessionSignals: string[],
   configuredModel: string | null,
 ): boolean {
+  // Empty matchers = catch-all provider (matches any model)
   if (provider.modelMatchers.length === 0) {
     return true;
   }
@@ -179,8 +180,9 @@ function modelMatchesProvider(
     ? sessionSignals
     : (configuredModel ? [configuredModel] : []);
 
+  // No model signals available — only catch-all providers can match
   if (signalsToCheck.length === 0) {
-    return provider.usageSource.kind === 'minimax';
+    return false;
   }
 
   return provider.modelMatchers.some((matcher) => {

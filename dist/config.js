@@ -41,46 +41,7 @@ export const DEFAULT_PROVIDER_DEFINITIONS = [
     },
 ];
 function cloneProviderDefinition(provider) {
-    return {
-        id: provider.id,
-        label: provider.label,
-        enabled: provider.enabled,
-        modelMatchers: [...provider.modelMatchers],
-        usageSource: {
-            kind: provider.usageSource.kind,
-            ...(provider.usageSource.endpoint ? { endpoint: provider.usageSource.endpoint } : {}),
-            ...(provider.usageSource.path ? { path: provider.usageSource.path } : {}),
-            ...(provider.usageSource.auth
-                ? {
-                    auth: {
-                        type: provider.usageSource.auth.type,
-                        ...(typeof provider.usageSource.auth.envName === 'string' && provider.usageSource.auth.envName.trim().length > 0
-                            ? { envName: provider.usageSource.auth.envName.trim() }
-                            : {}),
-                        ...(typeof provider.usageSource.auth.headerName === 'string' && provider.usageSource.auth.headerName.trim().length > 0
-                            ? { headerName: provider.usageSource.auth.headerName.trim() }
-                            : {}),
-                    },
-                }
-                : {}),
-            ...(provider.usageSource.responseMapping
-                ? {
-                    responseMapping: {
-                        ...(provider.usageSource.responseMapping.planNamePath
-                            ? { planNamePath: provider.usageSource.responseMapping.planNamePath }
-                            : {}),
-                        ...(provider.usageSource.responseMapping.windows
-                            ? {
-                                windows: provider.usageSource.responseMapping.windows.map((window) => ({
-                                    ...window,
-                                })),
-                            }
-                            : {}),
-                    },
-                }
-                : {}),
-        },
-    };
+    return structuredClone(provider);
 }
 export const DEFAULT_CONFIG = {
     language: 'en',

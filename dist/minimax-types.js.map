@@ -1,0 +1,1 @@
+{"version":3,"file":"minimax-types.js","sourceRoot":"","sources":["../src/minimax-types.ts"],"names":[],"mappings":"AA8BA,wDAAwD;AACxD,MAAM,UAAU,kBAAkB,CAAC,IAAa;IAC9C,OAAO,CACL,OAAO,IAAI,KAAK,QAAQ;QACxB,IAAI,KAAK,IAAI;QACb,UAAU,IAAI,IAAI;QACjB,IAA8B,CAAC,QAAQ,KAAK,SAAS,CACvD,CAAC;AACJ,CAAC"}

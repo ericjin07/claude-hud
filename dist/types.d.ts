@@ -1,6 +1,5 @@
 import type { HudConfig } from './config.js';
 import type { GitStatus } from './git.js';
-import type { MiniMaxUsageData } from './minimax-types.js';
 export interface StdinData {
     transcript_path?: string;
     cwd?: string;
@@ -83,7 +82,6 @@ export interface NormalizedUsageData {
     apiUnavailable?: boolean;
     apiError?: string;
 }
-export type UsageLikeData = NormalizedUsageData | UsageData | MiniMaxUsageData;
 export interface ExternalUsageSnapshot {
     five_hour?: {
         used_percentage?: number | null;
@@ -101,10 +99,8 @@ export interface MemoryInfo {
     freeBytes: number;
     usedPercent: number;
 }
-/** Check if usage limit is reached (either window at 100% or MiniMax at 0% remaining) */
-export declare function toNormalizedUsageData(data: UsageLikeData): NormalizedUsageData;
 /** Check if any usage window has reached its limit. */
-export declare function isLimitReached(data: UsageLikeData): boolean;
+export declare function isLimitReached(data: NormalizedUsageData): boolean;
 export interface SessionTokenUsage {
     inputTokens: number;
     outputTokens: number;
