@@ -286,7 +286,50 @@ To customize the provider order or disable MiniMax:
 }
 ```
 
-For `http-json` providers, `endpoint` and at least one mapped usage window are required. Each window must define either `usedPercentPath` or `remainingPercentPath`. `bearer-env` auth requires `envName`, and `header-env` requires both `envName` and `headerName`. Only object dot-paths are supported (e.g. `usage.daily.used_percent`); array indexing is not currently supported.
+For `http-json` providers, `endpoint` and at least one mapped usage window are required. Each window must define either `usedPercentPath`, `remainingPercentPath`, or `balancePath`. `bearer-env` auth requires `envName`, and `header-env` requires both `envName` and `headerName`. Dot-paths support both object keys and array indices (e.g. `usage.daily.used_percent`, `balance_infos.0.total_balance`).
+
+#### Example: DeepSeek (balance display)
+
+For API-billing providers that expose a balance endpoint instead of usage percentages, use `balancePath` and `balanceUnit`:
+
+```json
+{
+  "usage": {
+    "providerDefinitions": [
+      {
+        "id": "deepseek",
+        "label": "DeepSeek",
+        "modelMatchers": ["deepseek"],
+        "usageSource": {
+          "kind": "http-json",
+          "endpoint": "https://api.deepseek.com/user/balance",
+          "auth": {
+            "type": "bearer-env",
+            "envName": "DEEPSEEK_API_KEY"
+          },
+          "responseMapping": {
+            "windows": [
+              {
+                "key": "balance",
+                "label": "Balance",
+                "balancePath": "balance_infos.0.total_balance",
+                "balanceUnit": "¥"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "claude",
+        "label": "Claude",
+        "usageSource": { "kind": "stdin" }
+      }
+    ]
+  }
+}
+```
+
+This renders as: `Usage: Balance: ¥9.18`
 
 ### Options
 

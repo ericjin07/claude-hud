@@ -129,10 +129,37 @@ function getPathValue(source, dottedPath) {
     }
     let current = source;
     for (const segment of dottedPath.split('.')) {
-        if (!current || typeof current !== 'object' || !(segment in current)) {
+        if (current == null || typeof current !== 'object') {
             return undefined;
         }
-        current = current[segment];
+        // Support array filter syntax: "items[key=value]"
+        const filterMatch = segment.match(/^([^[]+)\[([^=]+)=([^\]]+)\]$/);
+        if (filterMatch) {
+            const [, arrayKey, filterKey, filterValue] = filterMatch;
+            const arr = current[arrayKey];
+            if (!Array.isArray(arr)) {
+                return undefined;
+            }
+            const found = arr.find((item) => item && typeof item === 'object' && String(item[filterKey]) === filterValue);
+            current = found ?? undefined;
+            if (current === undefined)
+                return undefined;
+            continue;
+        }
+        // Support numeric segments as array indices: "items.0.name"
+        if (Array.isArray(current)) {
+            const index = Number(segment);
+            if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+                return undefined;
+            }
+            current = current[index];
+        }
+        else if (segment in current) {
+            current = current[segment];
+        }
+        else {
+            return undefined;
+        }
     }
     return current;
 }
@@ -141,6 +168,16 @@ function parseMappedPercent(value) {
         return null;
     }
     return Math.max(0, Math.min(100, Math.round(value)));
+}
+function parseMappedBalance(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
 }
 function buildHttpJsonHeaders(provider) {
     const headers = {};
@@ -181,14 +218,18 @@ async function fetchHttpJsonUsage(provider, fetchJson) {
         const remainingPercent = window.remainingPercentPath
             ? parseMappedPercent(getPathValue(response, window.remainingPercentPath))
             : null;
+        const balance = window.balancePath
+            ? parseMappedBalance(getPathValue(response, window.balancePath))
+            : null;
         return {
             key: window.key,
             label: window.label,
             usedPercent: usedPercent ?? (remainingPercent === null ? null : Math.max(0, 100 - remainingPercent)),
             resetAt: parseMappedResetAt(getPathValue(response, window.resetAtPath)),
+            ...(balance !== null ? { balance, balanceUnit: window.balanceUnit ?? null } : {}),
         };
     });
-    if (!windows.some((window) => window.usedPercent !== null)) {
+    if (!windows.some((window) => window.usedPercent !== null || window.balance != null)) {
         return null;
     }
     return {

@@ -316,6 +316,12 @@ function normalizeProviderWindows(value) {
             ...(typeof windowMapping.resetAtPath === 'string' && windowMapping.resetAtPath.trim().length > 0
                 ? { resetAtPath: windowMapping.resetAtPath.trim() }
                 : {}),
+            ...(typeof windowMapping.balancePath === 'string' && windowMapping.balancePath.trim().length > 0
+                ? { balancePath: windowMapping.balancePath.trim() }
+                : {}),
+            ...(typeof windowMapping.balanceUnit === 'string' && windowMapping.balanceUnit.trim().length > 0
+                ? { balanceUnit: windowMapping.balanceUnit.trim() }
+                : {}),
         });
     }
     return windows.length > 0 ? windows : undefined;
@@ -327,7 +333,7 @@ function isSemanticallyValidProviderDefinition(provider) {
                 return false;
             }
             const windows = provider.usageSource.responseMapping.windows;
-            if (!windows.every((window) => Boolean(window.usedPercentPath || window.remainingPercentPath))) {
+            if (!windows.every((window) => Boolean(window.usedPercentPath || window.remainingPercentPath || window.balancePath))) {
                 return false;
             }
             const auth = provider.usageSource.auth;

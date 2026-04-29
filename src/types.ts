@@ -81,6 +81,8 @@ export interface UsageWindow {
   label: string;
   usedPercent: number | null;
   resetAt: Date | null;
+  balance?: number | null;
+  balanceUnit?: string | null;
 }
 
 export interface NormalizedUsageData {

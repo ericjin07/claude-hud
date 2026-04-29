@@ -37,6 +37,8 @@ export interface UsageProviderWindowMapping {
     usedPercentPath?: string;
     remainingPercentPath?: string;
     resetAtPath?: string;
+    balancePath?: string;
+    balanceUnit?: string;
 }
 export interface UsageProviderResponseMapping {
     planNamePath?: string;

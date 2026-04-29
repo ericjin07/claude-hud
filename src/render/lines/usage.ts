@@ -1,4 +1,4 @@
-import type { RenderContext, NormalizedUsageData } from '../../types.js';
+import type { RenderContext, NormalizedUsageData, UsageWindow } from '../../types.js';
 import { isLimitReached } from '../../types.js';
 import type { MessageKey } from '../../i18n/types.js';
 import { getProviderLabel } from '../../stdin.js';
@@ -64,6 +64,12 @@ export function renderUsageLine(
 
   // Single-window providers (e.g. MiniMax, GLM, or any custom http-json with one window)
   if (hasSingleWindow) {
+    // Balance window — render as text (e.g. "¥9.18")
+    if (primaryWindow?.balance != null) {
+      const balancePart = formatBalancePart(primaryWindow, colors);
+      return `${usageLabel} ${balancePart}`;
+    }
+
     const usedPercent = primaryWindow?.usedPercent ?? null;
     const resetAt = primaryWindow?.resetAt ?? null;
     if (usedPercent === null || usedPercent < threshold) {
@@ -165,6 +171,15 @@ export function renderUsageLine(
   }
 
   return `${usageLabel} ${fiveHourPart}${syncingSuffix}`;
+}
+
+function formatBalancePart(
+  window: UsageWindow,
+  colors?: RenderContext['config']['colors'],
+): string {
+  const unit = window.balanceUnit ?? '';
+  const value = window.balance ?? 0;
+  return label(`${window.label}: ${unit}${value}`, colors);
 }
 
 function formatCompactWindowPart(

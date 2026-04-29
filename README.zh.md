@@ -281,7 +281,50 @@ MiniMax 开箱即用。默认配置已包含 MiniMax provider——只需在 `.c
 }
 ```
 
-对于 `http-json` provider，必须提供 `endpoint` 和至少一个映射后的 usage window。每个 window 至少要定义 `usedPercentPath` 或 `remainingPercentPath` 之一。`bearer-env` 认证要求提供 `envName`，`header-env` 则必须同时提供 `envName` 和 `headerName`。仅支持对象点路径（如 `usage.daily.used_percent`），暂不支持数组下标。
+对于 `http-json` provider，必须提供 `endpoint` 和至少一个映射后的 usage window。每个 window 至少要定义 `usedPercentPath`、`remainingPercentPath` 或 `balancePath` 之一。`bearer-env` 认证要求提供 `envName`，`header-env` 则必须同时提供 `envName` 和 `headerName`。点路径同时支持对象键和数组下标（如 `usage.daily.used_percent`、`balance_infos.0.total_balance`）。
+
+#### 示例：DeepSeek（余额显示）
+
+对于按 API 计费、提供余额接口而非用量百分比的 provider，使用 `balancePath` 和 `balanceUnit`：
+
+```json
+{
+  "usage": {
+    "providerDefinitions": [
+      {
+        "id": "deepseek",
+        "label": "DeepSeek",
+        "modelMatchers": ["deepseek"],
+        "usageSource": {
+          "kind": "http-json",
+          "endpoint": "https://api.deepseek.com/user/balance",
+          "auth": {
+            "type": "bearer-env",
+            "envName": "DEEPSEEK_API_KEY"
+          },
+          "responseMapping": {
+            "windows": [
+              {
+                "key": "balance",
+                "label": "Balance",
+                "balancePath": "balance_infos.0.total_balance",
+                "balanceUnit": "¥"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "claude",
+        "label": "Claude",
+        "usageSource": { "kind": "stdin" }
+      }
+    ]
+  }
+}
+```
+
+渲染效果：`Usage: Balance: ¥9.18`
 
 ### 选项
 

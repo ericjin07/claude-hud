@@ -181,24 +181,30 @@ export function renderSessionLine(ctx: RenderContext): string {
 
       // Single-window providers (e.g. MiniMax, GLM, or any custom http-json with one window)
       if (hasSingleWindow) {
-        const usedPercent = primaryWindow?.usedPercent ?? null;
-        const resetAt = primaryWindow?.resetAt ?? null;
-        if (usedPercent !== null && usedPercent >= usageThreshold) {
-          if (usageCompact) {
-            parts.push(formatCompactWindowPart(primaryWindow!.label, usedPercent, resetAt, timeFormat, colors));
-          } else {
-            const usageBarEnabled = display?.usageBarEnabled ?? true;
-            const windowPart = formatUsageWindowPart({
-              label: primaryWindow!.label,
-              percent: usedPercent,
-              resetAt,
-              colors,
-              usageBarEnabled,
-              barWidth,
-              timeFormat,
-              showResetLabel,
-            });
-            parts.push(`${label(t('label.usage'), colors)} ${windowPart}`);
+        // Balance window — render as text (e.g. "¥9.18")
+        if (primaryWindow?.balance != null) {
+          const unit = primaryWindow.balanceUnit ?? '';
+          parts.push(label(`${primaryWindow.label}: ${unit}${primaryWindow.balance}`, colors));
+        } else {
+          const usedPercent = primaryWindow?.usedPercent ?? null;
+          const resetAt = primaryWindow?.resetAt ?? null;
+          if (usedPercent !== null && usedPercent >= usageThreshold) {
+            if (usageCompact) {
+              parts.push(formatCompactWindowPart(primaryWindow!.label, usedPercent, resetAt, timeFormat, colors));
+            } else {
+              const usageBarEnabled = display?.usageBarEnabled ?? true;
+              const windowPart = formatUsageWindowPart({
+                label: primaryWindow!.label,
+                percent: usedPercent,
+                resetAt,
+                colors,
+                usageBarEnabled,
+                barWidth,
+                timeFormat,
+                showResetLabel,
+              });
+              parts.push(`${label(t('label.usage'), colors)} ${windowPart}`);
+            }
           }
         }
       } else {

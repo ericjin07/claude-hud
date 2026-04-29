@@ -47,6 +47,11 @@ export function renderUsageLine(ctx, alignLabels = false) {
     const threshold = display?.usageThreshold ?? 0;
     // Single-window providers (e.g. MiniMax, GLM, or any custom http-json with one window)
     if (hasSingleWindow) {
+        // Balance window — render as text (e.g. "¥9.18")
+        if (primaryWindow?.balance != null) {
+            const balancePart = formatBalancePart(primaryWindow, colors);
+            return `${usageLabel} ${balancePart}`;
+        }
         const usedPercent = primaryWindow?.usedPercent ?? null;
         const resetAt = primaryWindow?.resetAt ?? null;
         if (usedPercent === null || usedPercent < threshold) {
@@ -137,6 +142,11 @@ export function renderUsageLine(ctx, alignLabels = false) {
         return `${usageLabel} ${fiveHourPart} | ${sevenDayPart}${syncingSuffix}`;
     }
     return `${usageLabel} ${fiveHourPart}${syncingSuffix}`;
+}
+function formatBalancePart(window, colors) {
+    const unit = window.balanceUnit ?? '';
+    const value = window.balance ?? 0;
+    return label(`${window.label}: ${unit}${value}`, colors);
 }
 function formatCompactWindowPart(windowLabel, percent, resetAt, timeFormat, colors) {
     const usageDisplay = formatUsagePercent(percent, colors);

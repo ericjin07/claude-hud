@@ -294,6 +294,7 @@ test("main uses MiniMax usage through the normalized resolver bridge", async () 
     countConfigs: async () => makeCounts(),
     loadConfig: async () => makeConfig(),
     getGitStatus: async () => null,
+    getConfiguredModel: () => "MiniMax-M2.7",
     getMiniMaxUsage: async () => ({
       planName: "MiniMax",
       utilization: 45,

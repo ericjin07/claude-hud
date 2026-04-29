@@ -211,10 +211,38 @@ function getPathValue(source: unknown, dottedPath?: string): unknown {
 
   let current: unknown = source;
   for (const segment of dottedPath.split('.')) {
-    if (!current || typeof current !== 'object' || !(segment in current)) {
+    if (current == null || typeof current !== 'object') {
       return undefined;
     }
-    current = (current as Record<string, unknown>)[segment];
+
+    // Support array filter syntax: "items[key=value]"
+    const filterMatch = segment.match(/^([^[]+)\[([^=]+)=([^\]]+)\]$/);
+    if (filterMatch) {
+      const [, arrayKey, filterKey, filterValue] = filterMatch;
+      const arr = (current as Record<string, unknown>)[arrayKey!];
+      if (!Array.isArray(arr)) {
+        return undefined;
+      }
+      const found = arr.find(
+        (item) => item && typeof item === 'object' && String((item as Record<string, unknown>)[filterKey!]) === filterValue,
+      );
+      current = found ?? undefined;
+      if (current === undefined) return undefined;
+      continue;
+    }
+
+    // Support numeric segments as array indices: "items.0.name"
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+        return undefined;
+      }
+      current = current[index];
+    } else if (segment in current) {
+      current = (current as Record<string, unknown>)[segment];
+    } else {
+      return undefined;
+    }
   }
   return current;
 }
@@ -224,6 +252,17 @@ function parseMappedPercent(value: unknown): number | null {
     return null;
   }
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function parseMappedBalance(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function buildHttpJsonHeaders(provider: UsageProviderDefinition): Record<string, string> | null {
@@ -277,16 +316,20 @@ async function fetchHttpJsonUsage(
     const remainingPercent = window.remainingPercentPath
       ? parseMappedPercent(getPathValue(response, window.remainingPercentPath))
       : null;
+    const balance = window.balancePath
+      ? parseMappedBalance(getPathValue(response, window.balancePath))
+      : null;
 
     return {
       key: window.key,
       label: window.label,
       usedPercent: usedPercent ?? (remainingPercent === null ? null : Math.max(0, 100 - remainingPercent)),
       resetAt: parseMappedResetAt(getPathValue(response, window.resetAtPath)),
+      ...(balance !== null ? { balance, balanceUnit: window.balanceUnit ?? null } : {}),
     };
   });
 
-  if (!windows.some((window) => window.usedPercent !== null)) {
+  if (!windows.some((window) => window.usedPercent !== null || window.balance != null)) {
     return null;
   }
 
